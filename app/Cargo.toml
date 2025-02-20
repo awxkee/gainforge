@@ -1,0 +1,8 @@
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+image = {version = "0.25.5", features = ["avif-native"]}
+gainforge = {path = "../"}

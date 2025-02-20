@@ -1,0 +1,26 @@
+workspace = { members = ["app"] }
+
+[package]
+name = "gainforge"
+version = "0.1.0"
+edition = "2021"
+description = "HDR tonemapping library"
+readme = "README.md"
+keywords = ["hdr", "tonemap", "image"]
+license = "BSD-3-Clause OR Apache-2.0"
+authors = ["Radzivon Bartoshyk"]
+documentation = "https://github.com/awxkee/gainforge"
+categories = ["multimedia::images"]
+homepage = "https://github.com/awxkee/gainforge"
+repository = "https://github.com/awxkee/gainforge"
+exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png", "assets/hdr.avif"]
+rust-version = "1.82.0"
+
+[dependencies]
+num-traits = "0.2.19"
+
+[package.metadata.docs.rs]
+# To build locally:
+# RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --no-deps --open
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

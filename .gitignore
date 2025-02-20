@@ -1,0 +1,4 @@
+/target
+.idea
+libavif-rs-master
+Cargo.lock
