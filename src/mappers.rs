@@ -138,10 +138,10 @@ impl<const CN: usize> ToneMap for FilmicToneMapper<CN> {
 pub(crate) struct AcesToneMapper<const CN: usize> {}
 
 #[derive(Copy, Clone)]
-struct Rgb {
-    r: f32,
-    g: f32,
-    b: f32,
+pub(crate) struct Rgb {
+    pub(crate) r: f32,
+    pub(crate) g: f32,
+    pub(crate) b: f32,
 }
 
 impl Mul<Rgb> for Rgb {

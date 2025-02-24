@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::cms::{make_icc_transform, GamutColorSpace, Xyz};
+use crate::cms::{make_icc_transform, GamutColorSpace, Matrix3f};
 use crate::err::ForgeError;
 use crate::gamma::HdrTransferFunction;
 use crate::mappers::{
@@ -42,7 +42,7 @@ type SyncToneMap = dyn ToneMap + Send + Sync;
 pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize> {
     pub(crate) linear_map: Box<[f32; N]>,
     pub(crate) gamma_map: Box<[T; 65636]>,
-    pub(crate) gamut_color_conversion: Option<[Xyz; 3]>,
+    pub(crate) gamut_color_conversion: Option<Matrix3f>,
     tone_map: Box<SyncToneMap>,
 }
 
@@ -90,9 +90,21 @@ where
 
         if let Some(c) = self.gamut_color_conversion {
             for chunk in linearized_content.chunks_exact_mut(CN) {
-                let r = mlaf(mlaf(chunk[0] * c[0].x, chunk[1], c[0].y), chunk[2], c[0].z);
-                let g = mlaf(mlaf(chunk[0] * c[1].x, chunk[1], c[1].y), chunk[2], c[1].z);
-                let b = mlaf(mlaf(chunk[0] * c[2].x, chunk[1], c[2].y), chunk[2], c[2].z);
+                let r = mlaf(
+                    mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
+                    chunk[2],
+                    c.v[0][2],
+                );
+                let g = mlaf(
+                    mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
+                    chunk[2],
+                    c.v[1][2],
+                );
+                let b = mlaf(
+                    mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
+                    chunk[2],
+                    c.v[2][2],
+                );
                 chunk[0] = r;
                 chunk[1] = g;
                 chunk[2] = b;
@@ -165,7 +177,7 @@ fn create_tone_mapper_u8<const CN: usize>(
     let linear_table = hdr_transfer_function.generate_linear_table_u8();
     let gamma_table = display_transfer_function.generate_gamma_table_u8();
     let conversion = if input_color_space != output_color_space {
-        Some(make_icc_transform(input_color_space, output_color_space))
+        make_icc_transform(input_color_space, output_color_space)
     } else {
         None
     };
@@ -191,7 +203,7 @@ fn create_tone_mapper_u16<const CN: usize>(
     let linear_table = hdr_transfer_function.generate_linear_table_u16(bit_depth);
     let gamma_table = display_transfer_function.generate_gamma_table_u16(bit_depth);
     let conversion = if input_color_space != output_color_space {
-        Some(make_icc_transform(input_color_space, output_color_space))
+        make_icc_transform(input_color_space, output_color_space)
     } else {
         None
     };

@@ -33,6 +33,15 @@ use std::fmt::Display;
 pub enum ForgeError {
     LaneSizeMismatch,
     LaneMultipleOfChannels,
+    InvalidIcc,
+    InvalicTrcCurve,
+    InvalidCicp,
+    CurveLutIsTooLarge,
+    ParametricCurveZeroDivision,
+    InvalidRenderingIntent,
+    DivisionByZero,
+    UnsupportedColorPrimaries(u8),
+    UnsupportedTrc(u8),
 }
 
 impl Display for ForgeError {
@@ -42,6 +51,19 @@ impl Display for ForgeError {
             ForgeError::LaneMultipleOfChannels => {
                 write!(f, "Lane length must not be multiple of channel count")
             }
+            ForgeError::InvalidIcc => f.write_str("Invalid ICC profile"),
+            ForgeError::InvalidCicp => f.write_str("Invalid CICP in ICC profile"),
+            ForgeError::InvalicTrcCurve => f.write_str("Invalid TRC curve"),
+            ForgeError::CurveLutIsTooLarge => f.write_str("Curve Lut is too large"),
+            ForgeError::ParametricCurveZeroDivision => {
+                f.write_str("Parametric Curve definition causes division by zero")
+            }
+            ForgeError::InvalidRenderingIntent => f.write_str("Invalid rendering intent"),
+            ForgeError::DivisionByZero => f.write_str("Division by zero"),
+            ForgeError::UnsupportedColorPrimaries(value) => {
+                f.write_fmt(format_args!("Unsupported color primaries, {}", value))
+            }
+            ForgeError::UnsupportedTrc(value) => write!(f, "Unsupported TRC {}", value),
         }
     }
 }

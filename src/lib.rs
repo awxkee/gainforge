@@ -27,20 +27,25 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #![allow(clippy::manual_clamp, clippy::excessive_precision)]
+mod apply_gain_map;
 mod cms;
 mod err;
 mod gamma;
+mod iso_gain_map;
 mod mappers;
 mod mlaf;
 mod tonemapper;
 
-pub use cms::GamutColorSpace;
+pub use apply_gain_map::apply_gain_map_rgb;
+pub use cms::{Chromacity, CicpProfile, ColorProfile, GamutColorSpace, IccHeader, Xyz};
 pub use err::ForgeError;
 pub use gamma::{HdrTransferFunction, TransferFunction};
+pub use iso_gain_map::{make_gainmap_weight, IsoGainMap};
 pub use mappers::ToneMappingMethod;
 pub use tonemapper::{
-    GainHDRMetadata, SyncToneMapper8Bit, SyncToneMapper16Bit, ToneMapper, create_tone_mapper_rgb,
-    create_tone_mapper_rgb10, create_tone_mapper_rgb12, create_tone_mapper_rgb14,
-    create_tone_mapper_rgb16, create_tone_mapper_rgba, create_tone_mapper_rgba10,
-    create_tone_mapper_rgba12, create_tone_mapper_rgba14, create_tone_mapper_rgba16,
+    create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
+    create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
+    create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
+    create_tone_mapper_rgba16, GainHDRMetadata, SyncToneMapper16Bit, SyncToneMapper8Bit,
+    ToneMapper,
 };

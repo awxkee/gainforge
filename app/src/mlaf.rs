@@ -26,16 +26,37 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::cms::gamut::{gamut_to_xyz, inverse, mat_mul, to_column_wise, Xyz, ILLUMINANT_D65};
-use crate::cms::GamutColorSpace;
+use num_traits::MulAdd;
+use std::ops::{Add, Mul};
 
-pub(crate) fn make_icc_transform(
-    input_color_space: GamutColorSpace,
-    output_color_space: GamutColorSpace,
-) -> [Xyz; 3] {
-    let d0 = gamut_to_xyz(output_color_space.primaries_xy(), ILLUMINANT_D65);
-    let dest = inverse(d0);
-    let src = gamut_to_xyz(input_color_space.primaries_xy(), ILLUMINANT_D65);
-    let product = mat_mul(dest, src);
-    to_column_wise(product)
+#[cfg(any(
+    all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "fma"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
+))]
+#[inline(always)]
+pub(crate) fn mlaf<T: Copy + Mul<T, Output = T> + Add<T, Output = T> + MulAdd<T, Output = T>>(
+    acc: T,
+    a: T,
+    b: T,
+) -> T {
+    MulAdd::mul_add(a, b, acc)
+}
+
+#[inline(always)]
+#[cfg(not(any(
+    all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "fma"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
+)))]
+pub(crate) fn mlaf<T: Copy + Mul<T, Output = T> + Add<T, Output = T> + MulAdd<T, Output = T>>(
+    acc: T,
+    a: T,
+    b: T,
+) -> T {
+    acc + a * b
 }
