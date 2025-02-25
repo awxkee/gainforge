@@ -662,14 +662,9 @@ impl ColorProfile {
 
     /// Computes transform matrix RGB -> XYZ -> RGB
     /// Current profile is used as source, other as destination
-    pub fn rgb_to_xyz_other_xyz_rgb(&self, dest: &ColorProfile) -> Option<Matrix3f> {
-        let mut source = self.rgb_to_xyz_matrix()?;
+    pub fn transform_matrix(&self, dest: &ColorProfile) -> Option<Matrix3f> {
+        let source = self.rgb_to_xyz_matrix()?;
         let dst = dest.rgb_to_xyz_matrix()?;
-        let source_wp = self.white_point.unwrap_or(D50_XYZ);
-        let dest_wp = dest.white_point.unwrap_or(D50_XYZ);
-        if source_wp != dest_wp {
-            source = adapt_matrix_to_illuminant_xyz(Some(source), source_wp, dest_wp)?;
-        }
         let dest_inverse = dst.inverse()?;
         Some(dest_inverse.mat_mul(source))
     }

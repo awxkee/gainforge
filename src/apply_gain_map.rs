@@ -30,7 +30,7 @@ use crate::cms::Matrix3f;
 use crate::iso_gain_map::{GainLUT, GainMap};
 use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
-use crate::{ColorProfile, GamutColorSpace, TransferFunction};
+use crate::{Chromacity, ColorProfile, GamutColorSpace, TransferFunction};
 
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb(
@@ -86,7 +86,7 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
     };
 
     let transform = if let Some(icc) = image_icc_profile {
-        icc.rgb_to_xyz_other_xyz_rgb(&target_gamut)
+        icc.transform_matrix(&target_gamut)
     } else {
         None
     };

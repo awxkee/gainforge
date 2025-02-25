@@ -161,7 +161,7 @@ fn main() {
     println!("Time {:?}", instant.elapsed());
 
     image::save_buffer(
-        "processed_alu10.jpg",
+        "processed_alu10_d65.jpg",
         &dst,
         associated.width as u32,
         associated.height as u32,
