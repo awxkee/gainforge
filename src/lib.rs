@@ -37,10 +37,13 @@ mod mlaf;
 mod tonemapper;
 
 pub use apply_gain_map::apply_gain_map_rgb;
-pub use cms::{Chromacity, CicpProfile, ColorProfile, GamutColorSpace, IccHeader, Xyz};
+pub use cms::GamutColorSpace;
 pub use err::ForgeError;
 pub use gamma::{HdrTransferFunction, TransferFunction};
-pub use iso_gain_map::{make_gainmap_weight, IsoGainMap};
+pub use iso_gain_map::{
+    make_gainmap_weight, IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo,
+    MpfNumberOfImages, MpfTag,
+};
 pub use mappers::ToneMappingMethod;
 pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,

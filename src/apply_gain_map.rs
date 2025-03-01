@@ -26,11 +26,11 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::cms::Matrix3f;
 use crate::iso_gain_map::{GainLUT, GainMap};
 use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
-use crate::{Chromacity, ColorProfile, GamutColorSpace, TransferFunction};
+use crate::{GamutColorSpace, TransferFunction};
+use moxcms::{ColorProfile, Matrix3f};
 
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb(
@@ -99,15 +99,15 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
 
     let output_gamma_map_r: Box<[u8; 65536]> = match target_gamut.red_trc.clone() {
         None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
+        Some(trc) => target_gamut.build_8bit_gamma_table(&Some(trc)).ok()?,
     };
     let output_gamma_map_g: Box<[u8; 65536]> = match target_gamut.green_trc.clone() {
         None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
+        Some(trc) => target_gamut.build_8bit_gamma_table(&Some(trc)).ok()?,
     };
     let output_gamma_map_b: Box<[u8; 65536]> = match target_gamut.blue_trc.clone() {
         None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
+        Some(trc) => target_gamut.build_8bit_gamma_table(&Some(trc)).ok()?,
     };
 
     match image_icc_profile {
@@ -118,9 +118,9 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
             image_linearize_map_b = srgb;
         }
         Some(icc) => {
-            image_linearize_map_r = icc.build_r_linearize_table::<256>()?;
-            image_linearize_map_g = icc.build_g_linearize_table::<256>()?;
-            image_linearize_map_b = icc.build_b_linearize_table::<256>()?;
+            image_linearize_map_r = icc.build_r_linearize_table::<256>().ok()?;
+            image_linearize_map_g = icc.build_g_linearize_table::<256>().ok()?;
+            image_linearize_map_b = icc.build_b_linearize_table::<256>().ok()?;
         }
     }
 
@@ -132,9 +132,9 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
             gain_image_linearize_map_b = srgb;
         }
         Some(icc) => {
-            gain_image_linearize_map_r = icc.build_r_linearize_table::<256>()?;
-            gain_image_linearize_map_g = icc.build_g_linearize_table::<256>()?;
-            gain_image_linearize_map_b = icc.build_b_linearize_table::<256>()?;
+            gain_image_linearize_map_r = icc.build_r_linearize_table::<256>().ok()?;
+            gain_image_linearize_map_g = icc.build_g_linearize_table::<256>().ok()?;
+            gain_image_linearize_map_b = icc.build_b_linearize_table::<256>().ok()?;
         }
     }
 

@@ -26,14 +26,6 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-mod cicp;
 mod gamut;
-mod matrix;
-mod profile;
-mod transform;
-mod trc;
 
 pub use gamut::GamutColorSpace;
-pub use matrix::{Matrix3f, Vector3f, XyY, Xyz};
-pub(crate) use profile::make_icc_transform;
-pub use profile::{Chromacity, CicpProfile, ColorProfile, IccHeader};

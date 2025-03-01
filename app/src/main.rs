@@ -29,16 +29,11 @@
 mod mlaf;
 mod parse;
 
-use crate::parse::find_iso_chunks;
-use gainforge::{
-    apply_gain_map_rgb, make_gainmap_weight, ColorProfile, GamutColorSpace, IsoGainMap,
-};
-use image::codecs::jpeg::JpegDecoder;
-use image::ImageDecoder;
-use jpeg_decoder::Decoder;
+use gainforge::{apply_gain_map_rgb, make_gainmap_weight, GamutColorSpace, IsoGainMap, MpfInfo};
+use moxcms::ColorProfile;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
-use turbojpeg::PixelFormat;
+use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
+use zune_jpeg::JpegDecoder;
 
 pub struct AssociatedImages {
     pub image: Vec<u8>,
@@ -53,11 +48,27 @@ pub struct AssociatedImages {
 fn extract_images(file_path: &str) -> AssociatedImages {
     let file = File::open(file_path).expect("Failed to open file");
 
-    let mut decoder = Decoder::new(BufReader::new(file));
+    let mut reader = BufReader::new(file);
 
+    let mut decoder = JpegDecoder::new(&mut reader);
+    decoder
+        .decode_headers()
+        .expect("Failed to decode JPEG headers");
     // Decode first image (Primary)
     let primary_image = decoder.decode().expect("Failed to decode primary image");
     let primary_metadata = decoder.info().expect("No metadata found");
+
+    let parsed_mpf =
+        MpfInfo::from_bytes(&decoder.info().unwrap().multi_picture_information.unwrap()).unwrap();
+    println!("{:?}", parsed_mpf);
+    println!("{:#?}", parsed_mpf.version.unwrap().test_version());
+
+    if let Some(xmp_data) = decoder.xmp() {
+        println!("Found xmp data");
+        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
+            println!("Found xmp data: {}", xmp_string);
+        }
+    }
 
     let image_icc = if let Some(icc) = decoder.icc_profile() {
         match ColorProfile::new_from_slice(&icc) {
@@ -68,25 +79,34 @@ fn extract_images(file_path: &str) -> AssociatedImages {
         None
     };
 
-    let last_pos = decoder.reader.seek(SeekFrom::Current(0)).unwrap();
     let file = File::open(file_path).expect("Failed to open file");
     let mut reader2 = BufReader::new(file);
-    reader2.seek(SeekFrom::Start(last_pos)).unwrap();
+    let stream_pos = reader.stream_position().unwrap() + 2;
+    reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
     reader2.read_to_end(&mut dst_vec).unwrap();
 
     // Read the second image from JPEG file
 
-    let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec())).unwrap();
-    let mut img1 = vec![0u8; decoder.total_bytes() as usize];
-    decoder.read_image(&mut img1).unwrap();
+    let mut gm_reader = BufReader::new(File::open(file_path).expect("Failed to open file"));
+    // let chunk = find_iso_chunks(&mut gm_reader).unwrap();
 
-    let gain_map_image_info =
-        turbojpeg::decompress(&dst_vec, PixelFormat::RGB).expect("Failed to decompress image");
+    let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec()));
+    decoder
+        .decode_headers()
+        .expect("Failed to decode JPEG headers");
 
-    let mut decoder2 = Decoder::new(Cursor::new(dst_vec.to_vec()));
+    if let Some(xmp_data) = decoder.xmp() {
+        println!("Found xmp data");
+        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
+            println!("Found xmp data: {}", xmp_string);
+        }
+    }
 
-    let gain_map_icc = if let Some(icc) = decoder2.icc_profile() {
+    let gainmap_info = &decoder.info().unwrap().gain_map_info[0].data;
+    let gain_map = IsoGainMap::from_bytes(&gainmap_info).unwrap();
+
+    let gain_map_icc = if let Some(icc) = decoder.icc_profile() {
         match ColorProfile::new_from_slice(&icc) {
             Ok(a0) => Some(a0),
             Err(_) => None,
@@ -95,17 +115,23 @@ fn extract_images(file_path: &str) -> AssociatedImages {
         None
     };
 
-    let mut gm_reader = BufReader::new(File::open(file_path).expect("Failed to open file"));
-    let chunk = find_iso_chunks(&mut gm_reader).unwrap();
+    if let Some(xmp_data) = decoder.xmp() {
+        println!("Found xmp data");
+        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
+            println!("Found xmp data: {}", xmp_string);
+        }
+    }
+
+    let gain_map_image = decoder.decode().unwrap();
 
     AssociatedImages {
         image: primary_image,
-        gain_map: gain_map_image_info.pixels,
+        gain_map: gain_map_image,
         width: primary_metadata.width as usize,
         height: primary_metadata.height as usize,
         icc_profile: image_icc,
         gain_map_icc_profile: gain_map_icc,
-        metadata: chunk,
+        metadata: gain_map,
     }
 }
 

@@ -18,6 +18,7 @@ rust-version = "1.82.0"
 
 [dependencies]
 num-traits = "0.2.19"
+moxcms = "0.2.0"
 
 [package.metadata.docs.rs]
 # To build locally:

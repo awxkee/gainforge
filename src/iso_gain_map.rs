@@ -64,6 +64,7 @@ pub enum UhdrErrorCode {
     InvalidParam,
     UnsupportedFeature,
     Other,
+    InvalidChunkForming,
 }
 
 #[inline]
@@ -76,6 +77,34 @@ fn read_u32(arr: &[u8], pos: &mut usize) -> Result<u32, UhdrErrorInfo> {
     }
     let s = &arr[*pos..*pos + 4];
     let c = u32::from_be_bytes([s[0], s[1], s[2], s[3]]);
+    *pos += 4;
+    Ok(c)
+}
+
+#[inline]
+fn read_u16(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
+    if arr[*pos..].len() < 2 {
+        return Err(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Input data too short".to_string()),
+        });
+    }
+    let s = &arr[*pos..*pos + 2];
+    let c = u16::from_be_bytes([s[0], s[1]]);
+    *pos += 2;
+    Ok(c)
+}
+
+#[inline]
+fn read_u32_ne(arr: &[u8], pos: &mut usize) -> Result<u32, UhdrErrorInfo> {
+    if arr[*pos..].len() < 4 {
+        return Err(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Input data too short".to_string()),
+        });
+    }
+    let s = &arr[*pos..*pos + 4];
+    let c = u32::from_ne_bytes([s[0], s[1], s[2], s[3]]);
     *pos += 4;
     Ok(c)
 }
@@ -94,8 +123,254 @@ fn read_s32(arr: &[u8], pos: &mut usize) -> Result<i32, UhdrErrorInfo> {
     Ok(c)
 }
 
+#[derive(Debug, Clone)]
+pub struct MpfInfo {
+    pub endianness: MpfEndianness,
+    pub index_ifd_offset: u32,
+    pub version: Option<MpfVersion>,
+    pub number_of_images: Option<MpfNumberOfImages>,
+    pub entry_types: MpfDataType,
+    pub entries: Vec<MpfEntry>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MpfTag {
+    Version,
+    NumberOfImages,
+    Entry,
+}
+
+impl TryFrom<u16> for MpfTag {
+    type Error = UhdrErrorInfo;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0xB000 => Ok(MpfTag::Version),
+            0xB001 => Ok(MpfTag::NumberOfImages),
+            0xB002 => Ok(MpfTag::Entry),
+            _ => Err(UhdrErrorInfo {
+                error_code: UhdrErrorCode::UnsupportedFeature,
+                detail: Some("Unknown MPF tag".to_string()),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MpfVersion {
+    pub version_type: MpfDataType,
+    pub version_count: u32,
+    pub value: u32,
+}
+
+impl MpfVersion {
+    pub fn test_version(self) -> bool {
+        let ver = u32::from_ne_bytes(*b"0100");
+        self.value == ver
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MpfNumberOfImages {
+    pub number_of_images_type: MpfDataType,
+    pub number_of_images: u32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MpfDataType {
+    Long,
+    Undefined,
+}
+
+impl TryFrom<u16> for MpfDataType {
+    type Error = UhdrErrorInfo;
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0x4 => Ok(MpfDataType::Long),
+            0x7 => Ok(MpfDataType::Undefined),
+            _ => Err(UhdrErrorInfo {
+                error_code: UhdrErrorCode::UnsupportedFeature,
+                detail: Some("Unknown MPf Data Type tag".to_string()),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum MpfImageType {
+    PrimaryImage,
+    OriginalPreservationImage,
+    MultiAngle,
+    MultiFrameDisparity,
+    MultiFramePanorama,
+    LargeThumbnailFhd,
+    LargeThumbnailVga,
+    Unknown(u32),
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum MpfImageFormat {
+    Jpeg,
+    Unknown(u32),
+}
+
+impl From<u32> for MpfImageFormat {
+    fn from(value: u32) -> Self {
+        let value = (value >> 24) & 0x7;
+        match value {
+            0 => MpfImageFormat::Jpeg,
+            _ => MpfImageFormat::Unknown(value),
+        }
+    }
+}
+
+impl From<u32> for MpfImageType {
+    fn from(value: u32) -> Self {
+        let value = value & 0xffffff;
+        match value {
+            0x30000 => Self::PrimaryImage,
+            0x40000 => Self::OriginalPreservationImage,
+            0x20003 => Self::MultiAngle,
+            0x20002 => Self::MultiFrameDisparity,
+            0x20001 => Self::MultiFramePanorama,
+            0x10002 => Self::LargeThumbnailFhd,
+            0x10001 => Self::LargeThumbnailVga,
+            _ => Self::Unknown(value),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MpfEntry {
+    pub image_format: MpfImageFormat,
+    pub image_type: MpfImageType,
+    pub size: u32,
+    pub offset: u32,
+    pub reserved0: u16,
+    pub reserved1: u16,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MpfEndianness {
+    BigEndian,
+    LittleEndian,
+}
+
+impl TryFrom<u32> for MpfEndianness {
+    type Error = UhdrErrorInfo;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        const LITTLE_ENDIAN: u32 = u32::from_ne_bytes([0x49, 0x49, 0x2A, 0x00]);
+        const BIG_ENDIAN: u32 = u32::from_ne_bytes([0x4D, 0x4D, 0x00, 0x2A]);
+        match value {
+            LITTLE_ENDIAN => Ok(MpfEndianness::LittleEndian),
+            BIG_ENDIAN => Ok(MpfEndianness::BigEndian),
+            _ => Err(UhdrErrorInfo {
+                error_code: UhdrErrorCode::InvalidParam,
+                detail: Some("Unknown MPF endianness".to_string()),
+            }),
+        }
+    }
+}
+
+impl MpfInfo {
+    pub fn from_bytes(bytes: &[u8]) -> Result<MpfInfo, UhdrErrorInfo> {
+        let mut index = 0usize;
+        let endianness_bytes = read_u32_ne(bytes, &mut index)?;
+        let endianness = MpfEndianness::try_from(endianness_bytes)?;
+        let index_ifd_offset = read_u32(bytes, &mut index)?;
+        let tags_count = read_u16(bytes, &mut index)? as usize;
+
+        if bytes.len() + index + tags_count * 12 < bytes.len() {
+            return Err(UhdrErrorInfo {
+                error_code: UhdrErrorCode::InvalidChunkForming,
+                detail: Some("Invalid MPF tags".to_string()),
+            });
+        }
+
+        let mut version: Option<MpfVersion> = None;
+        let mut number_of_images: Option<MpfNumberOfImages> = None;
+        let mut entries: Vec<MpfEntry> = Vec::new();
+        let mut entry_type = MpfDataType::Undefined;
+
+        for _ in 0..tags_count {
+            let tag_type = read_u16(bytes, &mut index)?;
+            // If there is error just ignore it
+            if let Ok(tag_type) = MpfTag::try_from(tag_type) {
+                match tag_type {
+                    MpfTag::Version => {
+                        let n_types =
+                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                        let version_count = read_u32(bytes, &mut index)?; // version count
+                        let expected_version = read_u32_ne(bytes, &mut index)?;
+                        version = Some(MpfVersion {
+                            version_count,
+                            version_type: n_types,
+                            value: expected_version,
+                        })
+                    }
+                    MpfTag::NumberOfImages => {
+                        let n_types =
+                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                        let _ = read_u32(bytes, &mut index)?; // count
+                        let images_count = read_u32(bytes, &mut index)?;
+                        number_of_images = Some(MpfNumberOfImages {
+                            number_of_images_type: n_types,
+                            number_of_images: images_count,
+                        })
+                    }
+                    MpfTag::Entry => {
+                        entry_type =
+                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                        let entries_size = read_u32(bytes, &mut index)? as usize;
+                        let entries_offset = read_u32(bytes, &mut index)? as usize;
+                        let entries_count = entries_size / 16;
+
+                        if bytes.len() + entries_offset + entries_size < bytes.len() {
+                            return Err(UhdrErrorInfo {
+                                error_code: UhdrErrorCode::InvalidChunkForming,
+                                detail: Some("Entry points to nowhere".to_string()),
+                            });
+                        }
+
+                        let bytes = &bytes[entries_offset..entries_offset + entries_size];
+                        let mut index = 0usize;
+
+                        for _ in 0..entries_count {
+                            let attributes = read_u32(bytes, &mut index)?;
+                            let format = MpfImageFormat::from(attributes);
+                            let image_type = MpfImageType::from(attributes);
+                            let image_size = read_u32(bytes, &mut index)?;
+                            let image_offset = read_u32(bytes, &mut index)?;
+                            let reserved0 = read_u16(bytes, &mut index)?;
+                            let reserved1 = read_u16(bytes, &mut index)?;
+
+                            entries.push(MpfEntry {
+                                image_format: format,
+                                image_type,
+                                size: image_size,
+                                offset: image_offset,
+                                reserved0,
+                                reserved1,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(MpfInfo {
+            endianness,
+            index_ifd_offset,
+            version,
+            number_of_images,
+            entries,
+            entry_types: entry_type,
+        })
+    }
+}
+
 impl IsoGainMap {
-    /// Converts a `Vec<u8>` into an `IsoGainMap` struct
+    /// Converts a `Vec<u8>` into an [IsoGainMap]` struct
     #[allow(clippy::field_reassign_with_default)]
     pub fn from_bytes(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
         if in_data.len() < 4 {
