@@ -323,7 +323,6 @@ impl MpfInfo {
                             read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
                         let entries_size = read_u32(bytes, &mut index)? as usize;
                         let entries_offset = read_u32(bytes, &mut index)? as usize;
-                        let entries_count = entries_size / 16;
 
                         if bytes.len() + entries_offset + entries_size < bytes.len() {
                             return Err(UhdrErrorInfo {
@@ -332,17 +331,16 @@ impl MpfInfo {
                             });
                         }
 
-                        let bytes = &bytes[entries_offset..entries_offset + entries_size];
-                        let mut index = 0usize;
-
-                        for _ in 0..entries_count {
-                            let attributes = read_u32(bytes, &mut index)?;
+                        let entries_s = &bytes[entries_offset..entries_offset + entries_size];
+                        
+                        for chunk in entries_s.chunks(16) {
+                            let attributes = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                             let format = MpfImageFormat::from(attributes);
                             let image_type = MpfImageType::from(attributes);
-                            let image_size = read_u32(bytes, &mut index)?;
-                            let image_offset = read_u32(bytes, &mut index)?;
-                            let reserved0 = read_u16(bytes, &mut index)?;
-                            let reserved1 = read_u16(bytes, &mut index)?;
+                            let image_size = u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+                            let image_offset = u32::from_be_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+                            let reserved0 = u16::from_be_bytes([chunk[12], chunk[13]]);
+                            let reserved1 = u16::from_be_bytes([chunk[14], chunk[15]]);
 
                             entries.push(MpfEntry {
                                 image_format: format,
@@ -353,6 +351,7 @@ impl MpfInfo {
                                 reserved1,
                             });
                         }
+                        index += entries_size;
                     }
                 }
             }
