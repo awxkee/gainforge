@@ -422,11 +422,10 @@ where
         .map_err(|_| ForgeError::InvalidIcc)?;
 
     let gain_map_icc_profile = (if gain_map.use_base_cg {
-        image_icc_profile
+        Some(image_icc_profile.as_ref().unwrap_or(&temporary_srgb))
     } else {
-        gain_map_icc_profile
+        gain_map_icc_profile.as_ref()
     })
-    .as_ref()
     .ok_or(ForgeError::InvalidGainMapConfiguration)?;
 
     let gain_image_linearize_map_r = gain_map_icc_profile

@@ -65,13 +65,6 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
     let parsed_mpf =
         MpfInfo::from_bytes(&decoder.info().unwrap().multi_picture_information.unwrap()).unwrap();
 
-    if let Some(xmp_data) = decoder.xmp() {
-        println!("Found xmp data");
-        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
-            println!("Found xmp data: {}", xmp_string);
-        }
-    }
-
     let cv = Vec::new();
     let primary_xmp = decoder.xmp().unwrap_or(&cv);
 
