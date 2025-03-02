@@ -81,17 +81,21 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
         .icc_profile()
         .and_then(|icc| ColorProfile::new_from_slice(&icc).ok());
 
+    // Read the second image from JPEG file
+
+    // This might be done using MPF
+    // or by last read stream position.
+
     let file = File::open(file_path).expect("Failed to open file");
     let mut reader2 = BufReader::new(file);
     // Zune have bug where some streams consumed in full, some or not, it might
     // be needed to adjust stream position using MPF or any other approach
-    // At the moment some images works when +2 is added, some images are not
+    // At the moment some images works when +2 is added, some images are not.
+    // Was fixed in the latest commits of zune-jpeg.
     let stream_pos = reader.stream_position().unwrap();
     reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
     reader2.read_to_end(&mut dst_vec).unwrap();
-
-    // Read the second image from JPEG file
 
     let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec()));
 
