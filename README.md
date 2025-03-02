@@ -40,6 +40,9 @@ Library helps perform tone mapping from HDR to SDR
 
 # How to handle UHDR
 
+Some patches on zune-image still in processing, resolving package
+from zune-image might be required
+
 ```rust
 pub struct GainMapAssociationGroup {
     pub image: Vec<u8>,
