@@ -91,7 +91,7 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
     // Zune have bug where some streams consumed in full, some or not, it might
     // be needed to adjust stream position using MPF or any other approach
     // At the moment some images works when +2 is added, some images are not.
-    // Was fixed in the latest commits of zune-jpeg.
+    // *Was fixed in the latest commits of zune-jpeg.*
     let stream_pos = reader.stream_position().unwrap();
     reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
