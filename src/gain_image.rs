@@ -105,6 +105,15 @@ impl<'a, T: Clone + Copy + Default + Debug, const N: usize> GainImage<'a, T, N> 
 
     /// Checks if it is matches the size of the other image
     #[inline]
+    pub fn size_matches_arb<const G: usize>(&self, other: &GainImage<'_, T, G>) -> Result<(), ForgeError> {
+        if self.width == other.width && self.height == other.height {
+            return Ok(());
+        }
+        Err(ForgeError::ImageSizeMismatch)
+    }
+
+    /// Checks if it is matches the size of the other image
+    #[inline]
     pub fn size_matches_mut(&self, other: &GainImageMut<'_, T, N>) -> Result<(), ForgeError> {
         if self.width == other.width && self.height == other.height {
             return Ok(());

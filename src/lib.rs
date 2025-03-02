@@ -39,6 +39,7 @@ mod tonemapper;
 
 pub use apply_gain_map::{
     apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
+    apply_gain_map_rgba, apply_gain_map_rgba10, apply_gain_map_rgba12, apply_gain_map_rgba16,
 };
 pub use cms::GamutColorSpace;
 pub use err::ForgeError;

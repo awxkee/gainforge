@@ -38,6 +38,8 @@ Library helps perform tone mapping from HDR to SDR
     .unwrap();
 ```
 
+# How to handle UHDR
+
 This project is licensed under either of
 
 - BSD-3-Clause License (see [LICENSE](LICENSE.md))

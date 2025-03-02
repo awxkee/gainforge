@@ -34,14 +34,29 @@ use moxcms::{ColorProfile, Matrix3f};
 use num_traits::AsPrimitive;
 use std::fmt::{Debug, Display};
 
+/// Applies gain map on 8 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb(
     image: &GainImage<u8, 3>,
-    dst_image: &mut GainImageMut<u8, 3>,
     image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u8, 3>,
+    destination_profile: &ColorProfile,
     gain_map_image: &GainImage<u8, 3>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_profile: &ColorProfile,
     gain_map: GainMap,
     weight: f32,
 ) -> Result<(), ForgeError> {
@@ -57,14 +72,67 @@ pub fn apply_gain_map_rgb(
     )
 }
 
+/// Applies gain map on 8 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba(
+    image: &GainImage<u8, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u8, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u8, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u8, 4, 3, 256, 8192, 8>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 10 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb10(
     image: &GainImage<u16, 3>,
-    dst_image: &mut GainImageMut<u16, 3>,
     image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
     gain_map_image: &GainImage<u16, 3>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_profile: &ColorProfile,
     gain_map: GainMap,
     weight: f32,
 ) -> Result<(), ForgeError> {
@@ -80,14 +148,67 @@ pub fn apply_gain_map_rgb10(
     )
 }
 
+/// Applies gain map on 10 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba10(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 1024, 8192, 10>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 12 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb12(
     image: &GainImage<u16, 3>,
-    dst_image: &mut GainImageMut<u16, 3>,
     image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
     gain_map_image: &GainImage<u16, 3>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_profile: &ColorProfile,
     gain_map: GainMap,
     weight: f32,
 ) -> Result<(), ForgeError> {
@@ -103,18 +224,109 @@ pub fn apply_gain_map_rgb12(
     )
 }
 
+/// Applies gain map on 12 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba12(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 4096, 16384, 12>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 16 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb16(
     image: &GainImage<u16, 3>,
-    dst_image: &mut GainImageMut<u16, 3>,
     image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
     gain_map_image: &GainImage<u16, 3>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_profile: &ColorProfile,
     gain_map: GainMap,
     weight: f32,
 ) -> Result<(), ForgeError> {
     apply_gain_map::<u16, 3, 3, 65536, 65536, 16>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 16 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba16(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 65536, 65536, 16>(
         image,
         dst_image,
         image_icc_profile,
@@ -138,7 +350,7 @@ fn apply_gain_map<
     image: &GainImage<T, N>,
     dst_image: &mut GainImageMut<T, N>,
     image_icc_profile: &Option<ColorProfile>,
-    gain_map_image: &GainImage<T, N>,
+    gain_map_image: &GainImage<T, GAIN_N>,
     gain_map_icc_profile: &Option<ColorProfile>,
     destination_gamut: &ColorProfile,
     gain_map: GainMap,
@@ -151,7 +363,7 @@ where
     image.check_layout()?;
     dst_image.check_layout()?;
     gain_map_image.check_layout()?;
-    image.size_matches(gain_map_image)?;
+    image.size_matches_arb::<GAIN_N>(gain_map_image)?;
     image.size_matches_mut(dst_image)?;
     assert!(GAMMA_DEPTH == 8192 || GAMMA_DEPTH == 16384 || GAMMA_DEPTH == 65536);
     assert!(BIT_DEPTH == 8 || BIT_DEPTH == 10 || BIT_DEPTH == 12 || BIT_DEPTH == 16);

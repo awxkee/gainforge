@@ -10,4 +10,4 @@ turbojpeg = "1.2.2"
 num-traits = "0.2.19"
 moxcms = "0.2.2"
 zune-jpeg = {path = "../../../RustroverProjects/zune-image/crates/zune-jpeg"}
-pic-scale = "0.5.2"
+pic-scale = "0.5.3"
