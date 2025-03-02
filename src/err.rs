@@ -30,6 +30,13 @@ use std::error::Error;
 use std::fmt::Display;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+/// Shows size mismatching
+pub struct MismatchedSize {
+    pub expected: usize,
+    pub received: usize,
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum ForgeError {
     LaneSizeMismatch,
     LaneMultipleOfChannels,
@@ -42,6 +49,11 @@ pub enum ForgeError {
     DivisionByZero,
     UnsupportedColorPrimaries(u8),
     UnsupportedTrc(u8),
+    InvalidGainMapConfiguration,
+    ImageSizeMismatch,
+    ZeroBaseSize,
+    MinimumSliceSizeMismatch(MismatchedSize),
+    MinimumStrideSizeMismatch(MismatchedSize),
 }
 
 impl Display for ForgeError {
@@ -64,6 +76,19 @@ impl Display for ForgeError {
                 f.write_fmt(format_args!("Unsupported color primaries, {}", value))
             }
             ForgeError::UnsupportedTrc(value) => write!(f, "Unsupported TRC {}", value),
+            ForgeError::InvalidGainMapConfiguration => {
+                f.write_str("Invalid Gain map configuration")
+            }
+            ForgeError::ImageSizeMismatch => f.write_str("Image size does not match"),
+            ForgeError::ZeroBaseSize => f.write_str("Image size must not be zero"),
+            ForgeError::MinimumSliceSizeMismatch(size) => f.write_fmt(format_args!(
+                "Minimum image slice size mismatch: expected={}, received={}",
+                size.expected, size.received
+            )),
+            ForgeError::MinimumStrideSizeMismatch(size) => f.write_fmt(format_args!(
+                "Minimum stride must have size at least {} but it is {}",
+                size.expected, size.received
+            )),
         }
     }
 }

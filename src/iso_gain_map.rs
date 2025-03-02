@@ -180,6 +180,7 @@ pub struct MpfNumberOfImages {
 pub enum MpfDataType {
     Long,
     Undefined,
+    Unknown(u16),
 }
 
 impl TryFrom<u16> for MpfDataType {
@@ -188,10 +189,7 @@ impl TryFrom<u16> for MpfDataType {
         match value {
             0x4 => Ok(MpfDataType::Long),
             0x7 => Ok(MpfDataType::Undefined),
-            _ => Err(UhdrErrorInfo {
-                error_code: UhdrErrorCode::UnsupportedFeature,
-                detail: Some("Unknown MPf Data Type tag".to_string()),
-            }),
+            _ => Ok(MpfDataType::Unknown(value)),
         }
     }
 }
@@ -299,7 +297,7 @@ impl MpfInfo {
                 match tag_type {
                     MpfTag::Version => {
                         let n_types =
-                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
                         let version_count = read_u32(bytes, &mut index)?; // version count
                         let expected_version = read_u32_ne(bytes, &mut index)?;
                         version = Some(MpfVersion {
@@ -310,7 +308,7 @@ impl MpfInfo {
                     }
                     MpfTag::NumberOfImages => {
                         let n_types =
-                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
                         let _ = read_u32(bytes, &mut index)?; // count
                         let images_count = read_u32(bytes, &mut index)?;
                         number_of_images = Some(MpfNumberOfImages {
@@ -320,7 +318,7 @@ impl MpfInfo {
                     }
                     MpfTag::Entry => {
                         entry_type =
-                            read_u16(bytes, &mut index).and_then(|x| MpfDataType::try_from(x))?;
+                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
                         let entries_size = read_u32(bytes, &mut index)? as usize;
                         let entries_offset = read_u32(bytes, &mut index)? as usize;
 
@@ -332,13 +330,16 @@ impl MpfInfo {
                         }
 
                         let entries_s = &bytes[entries_offset..entries_offset + entries_size];
-                        
+
                         for chunk in entries_s.chunks(16) {
-                            let attributes = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                            let attributes =
+                                u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                             let format = MpfImageFormat::from(attributes);
                             let image_type = MpfImageType::from(attributes);
-                            let image_size = u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-                            let image_offset = u32::from_be_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+                            let image_size =
+                                u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+                            let image_offset =
+                                u32::from_be_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
                             let reserved0 = u16::from_be_bytes([chunk[12], chunk[13]]);
                             let reserved1 = u16::from_be_bytes([chunk[14], chunk[15]]);
 
@@ -367,6 +368,9 @@ impl MpfInfo {
         })
     }
 }
+
+const IS_MULTICHANNEL_MASK: u8 = 1 << 7;
+const USE_BASE_COLORSPACE_MASK: u8 = 1 << 6;
 
 impl IsoGainMap {
     /// Converts a `Vec<u8>` into an [IsoGainMap]` struct
@@ -397,7 +401,11 @@ impl IsoGainMap {
 
         let flags = in_data[pos];
         pos += 1;
-        let channel_count = if (flags & 0x01) != 0 { 3 } else { 1 };
+        let channel_count = if (flags & IS_MULTICHANNEL_MASK) != 0 {
+            3
+        } else {
+            1
+        };
         if !(channel_count == 1 || channel_count == 3) {
             return Err(UhdrErrorInfo {
                 error_code: UhdrErrorCode::UnsupportedFeature,
@@ -409,9 +417,9 @@ impl IsoGainMap {
         }
 
         let mut metadata = IsoGainMap::default();
-        metadata.use_base_color_space = (flags & 0x02) != 0;
-        metadata.backward_direction = (flags & 0x04) != 0;
-        let use_common_denominator = (flags & 0x08) != 0;
+        metadata.use_base_color_space = (flags & USE_BASE_COLORSPACE_MASK) != 0;
+        metadata.backward_direction = (flags & 4) != 0;
+        let use_common_denominator = (flags & 8) != 0;
 
         if use_common_denominator {
             let common_denominator = read_u32(in_data, &mut pos)?;

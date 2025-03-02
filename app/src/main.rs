@@ -29,7 +29,10 @@
 mod mlaf;
 mod parse;
 
-use gainforge::{apply_gain_map_rgb, make_gainmap_weight, GamutColorSpace, IsoGainMap, MpfInfo};
+use gainforge::{
+    apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
+    make_gainmap_weight, GainImage, GainImageMut, GamutColorSpace, IsoGainMap, MpfInfo,
+};
 use moxcms::ColorProfile;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
@@ -163,22 +166,27 @@ fn main() {
 
     let gainmap = associated.metadata.to_gain_map();
 
-    let display_boost = 1.5f32;
+    let display_boost = 1.7f32;
     let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
     println!("weight {}", gainmap_weight);
 
     let instant = std::time::Instant::now();
 
-    let dst = apply_gain_map_rgb(
-        &associated.image,
-        associated.width * 3,
+    let source_image =
+        GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
+    let gain_image =
+        GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
+    let mut dst_image = GainImageMut::<u16, 3>::alloc(associated.width, associated.height);
+
+    let dest_profile = ColorProfile::new_srgb();
+
+    apply_gain_map_rgb10(
+        &source_image.expand_to_u16(10).to_immutable_ref(),
+        &mut dst_image,
         &associated.icc_profile,
-        &associated.gain_map,
-        associated.width * 3,
+        &gain_image.expand_to_u16(10).to_immutable_ref(),
         &associated.icc_profile,
-        GamutColorSpace::Srgb,
-        associated.width,
-        associated.height,
+        &dest_profile,
         gainmap,
         gainmap_weight,
     )
@@ -187,11 +195,17 @@ fn main() {
     println!("Time {:?}", instant.elapsed());
 
     image::save_buffer(
-        "processed_alu10_d65.jpg",
-        &dst,
+        "processed_alu10_d65.png",
+        &dst_image
+            .data
+            .borrow()
+            .iter()
+            .map(|&x| (x << 6) | (x >> 4))
+            .flat_map(|x| [x.to_ne_bytes()[0], x.to_ne_bytes()[1]])
+            .collect::<Vec<u8>>(),
         associated.width as u32,
         associated.height as u32,
-        image::ExtendedColorType::Rgb8,
+        image::ExtendedColorType::Rgb16,
     )
     .unwrap();
 }
