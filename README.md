@@ -1,6 +1,6 @@
 # HDR tone mapping library in Rust
 
-Library helps perform tonemapping from HDR to SDR
+Library helps perform tone mapping from HDR to SDR
 
 ## Example
 

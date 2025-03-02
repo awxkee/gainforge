@@ -84,7 +84,7 @@ fn extract_images(file_path: &str) -> AssociatedImages {
 
     let file = File::open(file_path).expect("Failed to open file");
     let mut reader2 = BufReader::new(file);
-    let stream_pos = reader.stream_position().unwrap() + 2;
+    let stream_pos = reader.stream_position().unwrap() ;
     reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
     reader2.read_to_end(&mut dst_vec).unwrap();
@@ -139,7 +139,7 @@ fn extract_images(file_path: &str) -> AssociatedImages {
 }
 
 fn main() {
-    let associated = extract_images("./assets/04.jpg");
+    let associated = extract_images("./assets/uhdr_01.jpg");
     // decoder.read_info().unwrap();
     // let img = image::ImageReader::open("./assets/hdr.avif")
     //     .unwrap()
@@ -185,7 +185,7 @@ fn main() {
         &mut dst_image,
         &associated.icc_profile,
         &gain_image.expand_to_u16(10).to_immutable_ref(),
-        &associated.icc_profile,
+        &associated.gain_map_icc_profile,
         &dest_profile,
         gainmap,
         gainmap_weight,

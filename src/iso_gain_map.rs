@@ -82,6 +82,28 @@ fn read_u32(arr: &[u8], pos: &mut usize) -> Result<u32, UhdrErrorInfo> {
 }
 
 #[inline]
+fn read_u32_e(
+    arr: &[u8],
+    pos: &mut usize,
+    endianness: MpfEndianness,
+) -> Result<u32, UhdrErrorInfo> {
+    if arr[*pos..].len() < 4 {
+        return Err(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Input data too short".to_string()),
+        });
+    }
+    let s = &arr[*pos..*pos + 4];
+    let c = if endianness == MpfEndianness::BigEndian {
+        u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+    } else {
+        u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+    };
+    *pos += 4;
+    Ok(c)
+}
+
+#[inline]
 fn read_u16(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
     if arr[*pos..].len() < 2 {
         return Err(UhdrErrorInfo {
@@ -91,6 +113,42 @@ fn read_u16(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
     }
     let s = &arr[*pos..*pos + 2];
     let c = u16::from_be_bytes([s[0], s[1]]);
+    *pos += 2;
+    Ok(c)
+}
+
+#[inline]
+fn read_u16_e(
+    arr: &[u8],
+    pos: &mut usize,
+    mpf_endianness: MpfEndianness,
+) -> Result<u16, UhdrErrorInfo> {
+    if arr[*pos..].len() < 2 {
+        return Err(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Input data too short".to_string()),
+        });
+    }
+    let s = &arr[*pos..*pos + 2];
+    let c = if mpf_endianness == MpfEndianness::BigEndian {
+        u16::from_be_bytes([s[0], s[1]])
+    } else {
+        u16::from_le_bytes([s[0], s[1]])
+    };
+    *pos += 2;
+    Ok(c)
+}
+
+#[inline]
+fn read_u16_le(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
+    if arr[*pos..].len() < 2 {
+        return Err(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Input data too short".to_string()),
+        });
+    }
+    let s = &arr[*pos..*pos + 2];
+    let c = u16::from_le_bytes([s[0], s[1]]);
     *pos += 2;
     Ok(c)
 }
@@ -248,7 +306,7 @@ pub struct MpfEntry {
     pub reserved1: u16,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum MpfEndianness {
     BigEndian,
     LittleEndian,
@@ -275,8 +333,8 @@ impl MpfInfo {
         let mut index = 0usize;
         let endianness_bytes = read_u32_ne(bytes, &mut index)?;
         let endianness = MpfEndianness::try_from(endianness_bytes)?;
-        let index_ifd_offset = read_u32(bytes, &mut index)?;
-        let tags_count = read_u16(bytes, &mut index)? as usize;
+        let index_ifd_offset = read_u32_e(bytes, &mut index, endianness)?;
+        let tags_count = read_u16_e(bytes, &mut index, endianness)? as usize;
 
         if bytes.len() + index + tags_count * 12 < bytes.len() {
             return Err(UhdrErrorInfo {
@@ -291,14 +349,14 @@ impl MpfInfo {
         let mut entry_type = MpfDataType::Undefined;
 
         for _ in 0..tags_count {
-            let tag_type = read_u16(bytes, &mut index)?;
+            let tag_type = read_u16_e(bytes, &mut index, endianness)?;
             // If there is error just ignore it
             if let Ok(tag_type) = MpfTag::try_from(tag_type) {
                 match tag_type {
                     MpfTag::Version => {
-                        let n_types =
-                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
-                        let version_count = read_u32(bytes, &mut index)?; // version count
+                        let n_types = read_u16_e(bytes, &mut index, endianness)
+                            .and_then(MpfDataType::try_from)?;
+                        let version_count = read_u32_e(bytes, &mut index, endianness)?; // version count
                         let expected_version = read_u32_ne(bytes, &mut index)?;
                         version = Some(MpfVersion {
                             version_count,
@@ -307,20 +365,20 @@ impl MpfInfo {
                         })
                     }
                     MpfTag::NumberOfImages => {
-                        let n_types =
-                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
-                        let _ = read_u32(bytes, &mut index)?; // count
-                        let images_count = read_u32(bytes, &mut index)?;
+                        let n_types = read_u16_e(bytes, &mut index, endianness)
+                            .and_then(MpfDataType::try_from)?;
+                        let _ = read_u32_e(bytes, &mut index, endianness)?; // count
+                        let images_count = read_u32_e(bytes, &mut index, endianness)?;
                         number_of_images = Some(MpfNumberOfImages {
                             number_of_images_type: n_types,
                             number_of_images: images_count,
                         })
                     }
                     MpfTag::Entry => {
-                        entry_type =
-                            read_u16(bytes, &mut index).and_then(MpfDataType::try_from)?;
-                        let entries_size = read_u32(bytes, &mut index)? as usize;
-                        let entries_offset = read_u32(bytes, &mut index)? as usize;
+                        entry_type = read_u16_e(bytes, &mut index, endianness)
+                            .and_then(MpfDataType::try_from)?;
+                        let entries_size = read_u32_e(bytes, &mut index, endianness)? as usize;
+                        let entries_offset = read_u32_e(bytes, &mut index, endianness)? as usize;
 
                         if bytes.len() + entries_offset + entries_size < bytes.len() {
                             return Err(UhdrErrorInfo {
@@ -332,16 +390,33 @@ impl MpfInfo {
                         let entries_s = &bytes[entries_offset..entries_offset + entries_size];
 
                         for chunk in entries_s.chunks(16) {
-                            let attributes =
-                                u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                            let attributes = if endianness == MpfEndianness::BigEndian {
+                                u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+                            } else {
+                                u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+                            };
                             let format = MpfImageFormat::from(attributes);
                             let image_type = MpfImageType::from(attributes);
-                            let image_size =
-                                u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-                            let image_offset =
-                                u32::from_be_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
-                            let reserved0 = u16::from_be_bytes([chunk[12], chunk[13]]);
-                            let reserved1 = u16::from_be_bytes([chunk[14], chunk[15]]);
+                            let image_size = if endianness == MpfEndianness::BigEndian {
+                                u32::from_be_bytes([chunk[4], chunk[5], chunk[6], chunk[7]])
+                            } else {
+                                u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]])
+                            };
+                            let image_offset = if endianness == MpfEndianness::BigEndian {
+                                u32::from_be_bytes([chunk[8], chunk[9], chunk[10], chunk[11]])
+                            } else {
+                                u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]])
+                            };
+                            let reserved0 = if endianness == MpfEndianness::BigEndian {
+                                u16::from_be_bytes([chunk[12], chunk[13]])
+                            } else {
+                                u16::from_le_bytes([chunk[12], chunk[13]])
+                            };
+                            let reserved1 = if endianness == MpfEndianness::BigEndian {
+                                u16::from_be_bytes([chunk[14], chunk[15]])
+                            } else {
+                                u16::from_le_bytes([chunk[14], chunk[15]])
+                            };
 
                             entries.push(MpfEntry {
                                 image_format: format,
