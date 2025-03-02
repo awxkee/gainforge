@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::cms::{make_icc_transform, GamutColorSpace, Matrix3f};
+use crate::cms::GamutColorSpace;
 use crate::err::ForgeError;
 use crate::gamma::HdrTransferFunction;
 use crate::mappers::{
@@ -35,6 +35,7 @@ use crate::mappers::{
 };
 use crate::mlaf::mlaf;
 use crate::{ToneMappingMethod, TransferFunction};
+use moxcms::{ColorProfile, Matrix3f};
 use num_traits::AsPrimitive;
 
 type SyncToneMap = dyn ToneMap + Send + Sync;
@@ -166,6 +167,25 @@ impl GainHDRMetadata {
 pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
 pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
 
+fn make_icc_transform(
+    input_color_space: GamutColorSpace,
+    output_color_space: GamutColorSpace,
+) -> Matrix3f {
+    let target_gamut = match output_color_space {
+        GamutColorSpace::Srgb => ColorProfile::new_srgb(),
+        GamutColorSpace::DisplayP3 => ColorProfile::new_display_p3(),
+        GamutColorSpace::Bt2020 => ColorProfile::new_bt2020(),
+    };
+    let source_gamut = match input_color_space {
+        GamutColorSpace::Srgb => ColorProfile::new_srgb(),
+        GamutColorSpace::DisplayP3 => ColorProfile::new_display_p3(),
+        GamutColorSpace::Bt2020 => ColorProfile::new_bt2020(),
+    };
+    source_gamut
+        .transform_matrix(&target_gamut)
+        .unwrap_or(Matrix3f::IDENTITY)
+}
+
 fn create_tone_mapper_u8<const CN: usize>(
     content_hdr_metadata: GainHDRMetadata,
     hdr_transfer_function: HdrTransferFunction,
@@ -177,7 +197,7 @@ fn create_tone_mapper_u8<const CN: usize>(
     let linear_table = hdr_transfer_function.generate_linear_table_u8();
     let gamma_table = display_transfer_function.generate_gamma_table_u8();
     let conversion = if input_color_space != output_color_space {
-        make_icc_transform(input_color_space, output_color_space)
+        Some(make_icc_transform(input_color_space, output_color_space))
     } else {
         None
     };
@@ -203,7 +223,7 @@ fn create_tone_mapper_u16<const CN: usize>(
     let linear_table = hdr_transfer_function.generate_linear_table_u16(bit_depth);
     let gamma_table = display_transfer_function.generate_gamma_table_u16(bit_depth);
     let conversion = if input_color_space != output_color_space {
-        make_icc_transform(input_color_space, output_color_space)
+        Some(make_icc_transform(input_color_space, output_color_space))
     } else {
         None
     };

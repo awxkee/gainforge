@@ -26,145 +26,454 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::cms::Matrix3f;
 use crate::iso_gain_map::{GainLUT, GainMap};
 use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
-use crate::{Chromacity, ColorProfile, GamutColorSpace, TransferFunction};
+use crate::{ForgeError, GainImage, GainImageMut};
+use moxcms::{ColorProfile, Matrix3f};
+use num_traits::AsPrimitive;
+use std::fmt::{Debug, Display};
 
+/// Applies gain map on 8 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
 #[allow(clippy::too_many_arguments)]
 pub fn apply_gain_map_rgb(
-    image: &[u8],
-    stride: usize,
+    image: &GainImage<u8, 3>,
     image_icc_profile: &Option<ColorProfile>,
-    gain_map_image: &[u8],
-    gain_map_image_stride: usize,
+    dst_image: &mut GainImageMut<u8, 3>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u8, 3>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_gamut: GamutColorSpace,
-    width: usize,
-    height: usize,
     gain_map: GainMap,
     weight: f32,
-) -> Option<Vec<u8>> {
-    apply_gain_map::<3, 3>(
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u8, 3, 3, 256, 8192, 8>(
         image,
-        stride,
+        dst_image,
         image_icc_profile,
         gain_map_image,
-        gain_map_image_stride,
         gain_map_icc_profile,
-        destination_gamut,
-        width,
-        height,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 8 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba(
+    image: &GainImage<u8, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u8, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u8, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u8, 4, 3, 256, 8192, 8>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 10 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgb10(
+    image: &GainImage<u16, 3>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 3, 3, 1024, 8192, 10>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 10 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba10(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 1024, 8192, 10>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 12 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgb12(
+    image: &GainImage<u16, 3>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 3, 3, 4096, 16384, 12>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 12 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba12(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 4096, 16384, 12>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 16 bit RGB image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgb16(
+    image: &GainImage<u16, 3>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 3>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 3, 3, 65536, 65536, 16>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
+        gain_map,
+        weight,
+    )
+}
+
+/// Applies gain map on 16 bit RGBA image
+///
+/// # Arguments
+///
+/// * `image`: Source image
+/// * `image_icc_profile`: Source image ICC profile
+/// * `dst_image`: Destination image
+/// * `destination_profile`: Destination image ICC profile
+/// * `gain_map_image`: Gain map
+/// * `gain_map_icc_profile`: Gain map ICC profile
+/// * `gain_map`: Gain map metadata
+/// * `weight`: gain map weight
+///
+/// returns: Result<(), ForgeError>
+///
+#[allow(clippy::too_many_arguments)]
+pub fn apply_gain_map_rgba16(
+    image: &GainImage<u16, 4>,
+    image_icc_profile: &Option<ColorProfile>,
+    dst_image: &mut GainImageMut<u16, 4>,
+    destination_profile: &ColorProfile,
+    gain_map_image: &GainImage<u16, 3>,
+    gain_map_icc_profile: &Option<ColorProfile>,
+    gain_map: GainMap,
+    weight: f32,
+) -> Result<(), ForgeError> {
+    apply_gain_map::<u16, 4, 3, 65536, 65536, 16>(
+        image,
+        dst_image,
+        image_icc_profile,
+        gain_map_image,
+        gain_map_icc_profile,
+        destination_profile,
         gain_map,
         weight,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_gain_map<const N: usize, const GAIN_N: usize>(
-    image: &[u8],
-    stride: usize,
+fn apply_gain_map<
+    T: Copy + 'static + Default + Debug + AsPrimitive<usize> + Display,
+    const N: usize,
+    const GAIN_N: usize,
+    const LIN_DEPTH: usize,
+    const GAMMA_DEPTH: usize,
+    const BIT_DEPTH: usize,
+>(
+    image: &GainImage<T, N>,
+    dst_image: &mut GainImageMut<T, N>,
     image_icc_profile: &Option<ColorProfile>,
-    gain_map_image: &[u8],
-    gain_map_image_stride: usize,
+    gain_map_image: &GainImage<T, GAIN_N>,
     gain_map_icc_profile: &Option<ColorProfile>,
-    destination_gamut: GamutColorSpace,
-    width: usize,
-    height: usize,
+    destination_gamut: &ColorProfile,
     gain_map: GainMap,
     weight: f32,
-) -> Option<Vec<u8>> {
-    let gain_image_linearize_map_r: Box<[f32; 256]>;
-    let gain_image_linearize_map_g: Box<[f32; 256]>;
-    let gain_image_linearize_map_b: Box<[f32; 256]>;
-
-    let target_gamut = match destination_gamut {
-        GamutColorSpace::Srgb => ColorProfile::new_srgb(),
-        GamutColorSpace::DisplayP3 => ColorProfile::new_display_p3(),
-        GamutColorSpace::Bt2020 => ColorProfile::new_bt2020(),
-    };
+) -> Result<(), ForgeError>
+where
+    f32: AsPrimitive<T>,
+    u32: AsPrimitive<T>,
+{
+    image.check_layout()?;
+    dst_image.check_layout()?;
+    gain_map_image.check_layout()?;
+    image.size_matches_arb::<GAIN_N>(gain_map_image)?;
+    image.size_matches_mut(dst_image)?;
+    assert!(GAMMA_DEPTH == 8192 || GAMMA_DEPTH == 16384 || GAMMA_DEPTH == 65536);
+    assert!(BIT_DEPTH == 8 || BIT_DEPTH == 10 || BIT_DEPTH == 12 || BIT_DEPTH == 16);
 
     let transform = if let Some(icc) = image_icc_profile {
-        icc.transform_matrix(&target_gamut)
+        icc.transform_matrix(destination_gamut)
     } else {
         None
     };
 
-    let lut = GainLUT::<256>::new(gain_map, weight);
+    let lut = GainLUT::<LIN_DEPTH>::new(gain_map, weight);
 
-    let image_linearize_map_r: Box<[f32; 256]>;
-    let image_linearize_map_g: Box<[f32; 256]>;
-    let image_linearize_map_b: Box<[f32; 256]>;
+    let output_gamma_map_r: Box<[T; 65536]> = destination_gamut
+        .red_trc
+        .clone()
+        .ok_or(ForgeError::InvalidIcc)
+        .and_then(|x| {
+            destination_gamut
+                .build_gamma_table::<T, 65536, GAMMA_DEPTH, BIT_DEPTH>(&Some(x))
+                .map_err(|_| ForgeError::InvalidIcc)
+        })?;
+    let output_gamma_map_g: Box<[T; 65536]> = destination_gamut
+        .green_trc
+        .clone()
+        .ok_or(ForgeError::InvalidIcc)
+        .and_then(|x| {
+            destination_gamut
+                .build_gamma_table::<T, 65536, GAMMA_DEPTH, BIT_DEPTH>(&Some(x))
+                .map_err(|_| ForgeError::InvalidIcc)
+        })?;
+    let output_gamma_map_b: Box<[T; 65536]> = destination_gamut
+        .blue_trc
+        .clone()
+        .ok_or(ForgeError::InvalidIcc)
+        .and_then(|x| {
+            destination_gamut
+                .build_gamma_table::<T, 65536, GAMMA_DEPTH, BIT_DEPTH>(&Some(x))
+                .map_err(|_| ForgeError::InvalidIcc)
+        })?;
 
-    let output_gamma_map_r: Box<[u8; 65536]> = match target_gamut.red_trc.clone() {
-        None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
-    };
-    let output_gamma_map_g: Box<[u8; 65536]> = match target_gamut.green_trc.clone() {
-        None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
-    };
-    let output_gamma_map_b: Box<[u8; 65536]> = match target_gamut.blue_trc.clone() {
-        None => return None,
-        Some(trc) => trc.build_gamma_table::<u8, 65536, 8192, 8>().unwrap(),
-    };
+    let temporary_srgb = ColorProfile::new_srgb();
 
-    match image_icc_profile {
-        None => {
-            let srgb = TransferFunction::Srgb.generate_linear_table_u8();
-            image_linearize_map_r = srgb.clone();
-            image_linearize_map_g = srgb.clone();
-            image_linearize_map_b = srgb;
-        }
-        Some(icc) => {
-            image_linearize_map_r = icc.build_r_linearize_table::<256>()?;
-            image_linearize_map_g = icc.build_g_linearize_table::<256>()?;
-            image_linearize_map_b = icc.build_b_linearize_table::<256>()?;
-        }
-    }
+    let img_profile = image_icc_profile
+        .as_ref()
+        .or(Some(&temporary_srgb))
+        .ok_or(ForgeError::InvalidIcc)?;
 
-    match gain_map_icc_profile {
-        None => {
-            let srgb = TransferFunction::Rec709.generate_linear_table_u8();
-            gain_image_linearize_map_r = srgb.clone();
-            gain_image_linearize_map_g = srgb.clone();
-            gain_image_linearize_map_b = srgb;
-        }
-        Some(icc) => {
-            gain_image_linearize_map_r = icc.build_r_linearize_table::<256>()?;
-            gain_image_linearize_map_g = icc.build_g_linearize_table::<256>()?;
-            gain_image_linearize_map_b = icc.build_b_linearize_table::<256>()?;
-        }
-    }
+    let image_linearize_map_r = img_profile
+        .build_r_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
+    let image_linearize_map_g = img_profile
+        .build_g_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
+    let image_linearize_map_b = img_profile
+        .build_b_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
 
-    let mut linearized_image_content = vec![0f32; width * N];
-    let mut linearized_gain_content = vec![0f32; width * GAIN_N];
-    let mut working_lane = vec![0f32; width * N];
+    let gain_map_icc_profile = (if gain_map.use_base_cg {
+        image_icc_profile
+    } else {
+        gain_map_icc_profile
+    })
+    .as_ref()
+    .ok_or(ForgeError::InvalidGainMapConfiguration)?;
 
-    let mut dst_image = vec![0u8; width * height * N];
+    let gain_image_linearize_map_r = gain_map_icc_profile
+        .build_r_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
+    let gain_image_linearize_map_g = gain_map_icc_profile
+        .build_g_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
+    let gain_image_linearize_map_b = gain_map_icc_profile
+        .build_b_linearize_table::<LIN_DEPTH>()
+        .map_err(|_| ForgeError::InvalidIcc)?;
+
+    let mut linearized_image_content = vec![0f32; image.width * N];
+    let mut linearized_gain_content = vec![0f32; image.width * GAIN_N];
+    let mut working_lane = vec![0f32; image.width * N];
+
+    let src_stride = image.row_stride();
+    let dst_stride = dst_image.row_stride();
+    let dst_image = dst_image.data.borrow_mut();
+    let width = image.width;
 
     for ((gain_lane, image_lane), dst_lane) in gain_map_image
-        .chunks_exact(gain_map_image_stride)
-        .zip(image.chunks_exact(stride))
-        .zip(dst_image.chunks_exact_mut(width * N))
+        .data
+        .as_ref()
+        .chunks_exact(gain_map_image.row_stride())
+        .zip(image.data.as_ref().chunks_exact(src_stride))
+        .zip(dst_image.chunks_exact_mut(dst_stride))
     {
         for (src, dst) in gain_lane[..width * GAIN_N]
             .chunks_exact(3)
             .zip(linearized_gain_content.chunks_exact_mut(GAIN_N))
         {
-            dst[0] = gain_image_linearize_map_r[src[0] as usize];
-            dst[1] = gain_image_linearize_map_g[src[1] as usize];
-            dst[2] = gain_image_linearize_map_b[src[2] as usize];
+            dst[0] = gain_image_linearize_map_r[src[0].as_()];
+            dst[1] = gain_image_linearize_map_g[src[1].as_()];
+            dst[2] = gain_image_linearize_map_b[src[2].as_()];
         }
 
         for (src, dst) in image_lane[..width * N]
             .chunks_exact(N)
             .zip(linearized_image_content.chunks_exact_mut(N))
         {
-            dst[0] = image_linearize_map_r[src[0] as usize];
-            dst[1] = image_linearize_map_g[src[1] as usize];
-            dst[2] = image_linearize_map_b[src[2] as usize];
+            dst[0] = image_linearize_map_r[src[0].as_()];
+            dst[1] = image_linearize_map_g[src[1].as_()];
+            dst[2] = image_linearize_map_b[src[2].as_()];
+            if N == 4 {
+                dst[3] = f32::from_bits(src[3].as_() as u32);
+            }
         }
 
         for ((gain, src), dst) in linearized_gain_content
@@ -188,7 +497,7 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
             dst[1] = applied_gain.g;
             dst[2] = applied_gain.b;
             if N == 4 {
-                dst[3] = f32::from_bits(255u32);
+                dst[3] = src[3];
             }
         }
 
@@ -223,21 +532,23 @@ fn apply_gain_map<const N: usize, const GAIN_N: usize>(
             }
         }
 
+        let gamma_scale = (GAMMA_DEPTH - 1) as f32;
+
         for (dst, src) in dst_lane
             .chunks_exact_mut(N)
             .zip(working_lane.chunks_exact(N))
         {
-            let r = mlaf(0.5f32, src[0], 8191f32) as u16;
-            let g = mlaf(0.5f32, src[1], 8191f32) as u16;
-            let b = mlaf(0.5f32, src[2], 8191f32) as u16;
+            let r = mlaf(0.5f32, src[0], gamma_scale) as u16;
+            let g = mlaf(0.5f32, src[1], gamma_scale) as u16;
+            let b = mlaf(0.5f32, src[2], gamma_scale) as u16;
             dst[0] = output_gamma_map_r[r as usize];
             dst[1] = output_gamma_map_g[g as usize];
             dst[2] = output_gamma_map_b[b as usize];
             if N == 4 {
-                dst[3] = src[3].to_bits() as u8;
+                dst[3] = src[3].to_bits().as_();
             }
         }
     }
 
-    Some(dst_image)
+    Ok(())
 }

@@ -29,18 +29,16 @@
 mod mlaf;
 mod parse;
 
-use crate::parse::find_iso_chunks;
 use gainforge::{
-    apply_gain_map_rgb, make_gainmap_weight, ColorProfile, GamutColorSpace, IsoGainMap,
+    apply_gain_map_rgb, make_gainmap_weight, GainImage, GainImageMut, IsoGainMap, MpfInfo,
+    UhdrDirectory, UhdrDirectoryContainer,
 };
-use image::codecs::jpeg::JpegDecoder;
-use image::ImageDecoder;
-use jpeg_decoder::Decoder;
+use moxcms::ColorProfile;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
-use turbojpeg::PixelFormat;
+use zune_jpeg::JpegDecoder;
 
-pub struct AssociatedImages {
+pub struct GainMapAssociationGroup {
     pub image: Vec<u8>,
     pub gain_map: Vec<u8>,
     pub width: usize,
@@ -50,67 +48,123 @@ pub struct AssociatedImages {
     pub metadata: IsoGainMap,
 }
 
-fn extract_images(file_path: &str) -> AssociatedImages {
+fn extract_images(file_path: &str) -> GainMapAssociationGroup {
     let file = File::open(file_path).expect("Failed to open file");
 
-    let mut decoder = Decoder::new(BufReader::new(file));
+    let mut reader = BufReader::new(file);
 
+    let mut decoder = JpegDecoder::new(&mut reader);
+    decoder
+        .decode_headers()
+        .expect("Failed to decode JPEG headers");
     // Decode first image (Primary)
     let primary_image = decoder.decode().expect("Failed to decode primary image");
     let primary_metadata = decoder.info().expect("No metadata found");
 
-    let image_icc = if let Some(icc) = decoder.icc_profile() {
-        match ColorProfile::new_from_slice(&icc) {
-            Ok(a0) => Some(a0),
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+    // Multi picture format information, if you want to do something with it
+    // Atm supported only from marker
+    let parsed_mpf =
+        MpfInfo::from_bytes(&decoder.info().unwrap().multi_picture_information.unwrap()).unwrap();
 
-    let last_pos = decoder.reader.seek(SeekFrom::Current(0)).unwrap();
+    if let Some(xmp_data) = decoder.xmp() {
+        println!("Found xmp data");
+        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
+            println!("Found xmp data: {}", xmp_string);
+        }
+    }
+
+    let cv = Vec::new();
+    let primary_xmp = decoder.xmp().unwrap_or(&cv);
+
+    // UHDR directory info if needed
+    let uhdr_directory = UhdrDirectoryContainer::from_xml(primary_xmp);
+
+    let image_icc = decoder
+        .icc_profile()
+        .and_then(|icc| ColorProfile::new_from_slice(&icc).ok());
+
     let file = File::open(file_path).expect("Failed to open file");
     let mut reader2 = BufReader::new(file);
-    reader2.seek(SeekFrom::Start(last_pos)).unwrap();
+    // Zune have bug where some streams consumed in full, some or not, it might
+    // be needed to adjust stream position using MPF or any other approach
+    // At the moment some images works when +2 is added, some images are not
+    let stream_pos = reader.stream_position().unwrap();
+    reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
     reader2.read_to_end(&mut dst_vec).unwrap();
 
     // Read the second image from JPEG file
 
-    let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec())).unwrap();
-    let mut img1 = vec![0u8; decoder.total_bytes() as usize];
-    decoder.read_image(&mut img1).unwrap();
+    let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec()));
 
-    let gain_map_image_info =
-        turbojpeg::decompress(&dst_vec, PixelFormat::RGB).expect("Failed to decompress image");
+    decoder
+        .decode_headers()
+        .expect("Failed to decode JPEG headers");
 
-    let mut decoder2 = Decoder::new(Cursor::new(dst_vec.to_vec()));
+    // Gain map might be stored either in XMP and APP2 iso chunk
+    let xmp_data = decoder
+        .xmp()
+        .map(|x| x.to_vec())
+        .or(Some(Vec::new()))
+        .unwrap();
 
-    let gain_map_icc = if let Some(icc) = decoder2.icc_profile() {
-        match ColorProfile::new_from_slice(&icc) {
-            Ok(a0) => Some(a0),
-            Err(_) => None,
-        }
+    // New zune-jpeg is required
+    let gainmap_info = if decoder.info().unwrap().gain_map_info.len() > 0 {
+        decoder.info().unwrap().gain_map_info[0].data.to_vec()
     } else {
-        None
+        Vec::new()
     };
+    let gain_map = IsoGainMap::from_metadata(&gainmap_info)
+        .or_else(|_| IsoGainMap::from_xml_data(&xmp_data))
+        .unwrap();
 
-    let mut gm_reader = BufReader::new(File::open(file_path).expect("Failed to open file"));
-    let chunk = find_iso_chunks(&mut gm_reader).unwrap();
+    let gain_map_icc = decoder
+        .icc_profile()
+        .and_then(|icc| ColorProfile::new_from_slice(&icc).ok());
 
-    AssociatedImages {
+    let mut gain_map_image = decoder.decode().unwrap();
+
+    let gain_map_image_info = decoder.info().unwrap();
+
+    // Gain map might have 3 components, or 1.
+    // Might be in full size or 1/4.
+    // this implementation always returns full image in 3 components.
+    if gain_map_image_info.components == 1 {
+        gain_map_image = gain_map_image.iter().flat_map(|&x| [x, x, x]).collect();
+    }
+
+    if gain_map_image_info.width != primary_metadata.width
+        || gain_map_image_info.height != primary_metadata.height
+    {
+        let source_image = pic_scale::ImageStore::<u8, 3>::borrow(
+            &gain_map_image,
+            gain_map_image_info.width as usize,
+            gain_map_image_info.height as usize,
+        )
+        .unwrap();
+        let mut scaler = pic_scale::Scaler::new(pic_scale::ResamplingFunction::Lanczos3);
+        scaler.set_workload_strategy(pic_scale::WorkloadStrategy::PreferQuality);
+        let mut dst_image = pic_scale::ImageStoreMut::<u8, 3>::alloc(
+            primary_metadata.width as usize,
+            primary_metadata.height as usize,
+        );
+        use pic_scale::Scaling;
+        scaler.resize_rgb(&source_image, &mut dst_image).unwrap();
+        gain_map_image = dst_image.buffer.borrow().to_vec();
+    }
+
+    GainMapAssociationGroup {
         image: primary_image,
-        gain_map: gain_map_image_info.pixels,
+        gain_map: gain_map_image,
         width: primary_metadata.width as usize,
         height: primary_metadata.height as usize,
         icc_profile: image_icc,
         gain_map_icc_profile: gain_map_icc,
-        metadata: chunk,
+        metadata: gain_map,
     }
 }
 
 fn main() {
-    let associated = extract_images("./assets/04.jpg");
     // decoder.read_info().unwrap();
     // let img = image::ImageReader::open("./assets/hdr.avif")
     //     .unwrap()
@@ -135,34 +189,40 @@ fn main() {
     //     tone_mapper.tonemap_lane(src, dst).unwrap();
     // }
 
+    // Load required associated images
+    let associated = extract_images("./assets/uhdr_01.jpg");
+
     let gainmap = associated.metadata.to_gain_map();
 
-    let display_boost = 1.5f32;
+    // Get maximum display boost from screen information
+    let display_boost = 1.3f32;
     let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
-    println!("weight {}", gainmap_weight);
 
-    let instant = std::time::Instant::now();
+    let source_image =
+        GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
+    let gain_image =
+        GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
+    let mut dst_image = GainImageMut::<u8, 3>::alloc(associated.width, associated.height);
 
-    let dst = apply_gain_map_rgb(
-        &associated.image,
-        associated.width * 3,
+    // Screen colorspace
+    let dest_profile = ColorProfile::new_srgb();
+
+    // And finally apply gain map
+    apply_gain_map_rgb(
+        &source_image,
         &associated.icc_profile,
-        &associated.gain_map,
-        associated.width * 3,
-        &associated.icc_profile,
-        GamutColorSpace::Srgb,
-        associated.width,
-        associated.height,
+        &mut dst_image,
+        &dest_profile,
+        &gain_image,
+        &associated.gain_map_icc_profile,
         gainmap,
         gainmap_weight,
     )
     .unwrap();
 
-    println!("Time {:?}", instant.elapsed());
-
     image::save_buffer(
-        "processed_alu10_d65.jpg",
-        &dst,
+        "processed_alu10_d65_4.jpg",
+        &dst_image.data.borrow(),
         associated.width as u32,
         associated.height as u32,
         image::ExtendedColorType::Rgb8,

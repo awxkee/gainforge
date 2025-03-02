@@ -30,17 +30,26 @@
 mod apply_gain_map;
 mod cms;
 mod err;
+mod gain_image;
 mod gamma;
 mod iso_gain_map;
 mod mappers;
 mod mlaf;
 mod tonemapper;
 
-pub use apply_gain_map::apply_gain_map_rgb;
-pub use cms::{Chromacity, CicpProfile, ColorProfile, GamutColorSpace, IccHeader, Xyz};
+pub use apply_gain_map::{
+    apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
+    apply_gain_map_rgba, apply_gain_map_rgba10, apply_gain_map_rgba12, apply_gain_map_rgba16,
+};
+pub use cms::GamutColorSpace;
 pub use err::ForgeError;
+pub use gain_image::{BufferStore, GainImage, GainImageMut};
 pub use gamma::{HdrTransferFunction, TransferFunction};
-pub use iso_gain_map::{make_gainmap_weight, IsoGainMap};
+pub use iso_gain_map::{
+    make_gainmap_weight, IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo,
+    MpfNumberOfImages, MpfTag, UhdrDirectory, UhdrDirectoryContainer, UhdrDirectoryRdf,
+    UhdrDirectorySeq, UhdrItem, UhdrItemContainerLi, UhdrItemResource,
+};
 pub use mappers::ToneMappingMethod;
 pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
