@@ -100,7 +100,7 @@ pub(crate) fn find_iso_chunks<R: Read>(reader: &mut R) -> io::Result<IsoGainMap>
         panic!("Not allowed");
     }
 
-    let decoded = IsoGainMap::from_bytes(&full_chunks).unwrap();
+    let decoded = IsoGainMap::from_metadata(&full_chunks).unwrap();
 
     Ok(decoded)
 }

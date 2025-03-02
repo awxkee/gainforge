@@ -34,8 +34,11 @@ use gainforge::{
     make_gainmap_weight, GainImage, GainImageMut, GamutColorSpace, IsoGainMap, MpfInfo,
 };
 use moxcms::ColorProfile;
+use pic_scale::{ImageStore, ImageStoreMut, ResamplingFunction, Scaler, Scaling, WorkloadStrategy};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
+use zune_jpeg::zune_core::colorspace::ColorSpace;
+use zune_jpeg::zune_core::options::DecoderOptions;
 use zune_jpeg::JpegDecoder;
 
 pub struct AssociatedImages {
@@ -84,30 +87,39 @@ fn extract_images(file_path: &str) -> AssociatedImages {
 
     let file = File::open(file_path).expect("Failed to open file");
     let mut reader2 = BufReader::new(file);
-    let stream_pos = reader.stream_position().unwrap() ;
+    let stream_pos = reader.stream_position().unwrap() + 2;
     reader2.seek(SeekFrom::Start(stream_pos)).unwrap();
     let mut dst_vec = Vec::new();
     reader2.read_to_end(&mut dst_vec).unwrap();
 
     // Read the second image from JPEG file
 
-    let mut gm_reader = BufReader::new(File::open(file_path).expect("Failed to open file"));
-    // let chunk = find_iso_chunks(&mut gm_reader).unwrap();
+    let options = DecoderOptions::new_fast().jpeg_set_out_colorspace(ColorSpace::RGB);
 
-    let mut decoder = JpegDecoder::new(Cursor::new(dst_vec.to_vec()));
+    let mut decoder = JpegDecoder::new_with_options(Cursor::new(dst_vec.to_vec()), options);
+
     decoder
         .decode_headers()
         .expect("Failed to decode JPEG headers");
 
-    if let Some(xmp_data) = decoder.xmp() {
-        println!("Found xmp data");
-        if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
-            println!("Found xmp data: {}", xmp_string);
-        }
+    let xmp_data = decoder
+        .xmp()
+        .map(|x| x.to_vec())
+        .or(Some(Vec::new()))
+        .unwrap();
+
+    if let Ok(xmp_string) = String::from_utf8(xmp_data.to_vec()) {
+        println!("Found xmp data: {}", xmp_string);
     }
 
-    let gainmap_info = &decoder.info().unwrap().gain_map_info[0].data;
-    let gain_map = IsoGainMap::from_bytes(&gainmap_info).unwrap();
+    let gainmap_info = if decoder.info().unwrap().gain_map_info.len() > 0 {
+        decoder.info().unwrap().gain_map_info[0].data.to_vec()
+    } else {
+        Vec::new()
+    };
+    let gain_map = IsoGainMap::from_metadata(&gainmap_info)
+        .or_else(|_| IsoGainMap::from_xml_data(&xmp_data))
+        .unwrap();
 
     let gain_map_icc = if let Some(icc) = decoder.icc_profile() {
         match ColorProfile::new_from_slice(&icc) {
@@ -125,7 +137,38 @@ fn extract_images(file_path: &str) -> AssociatedImages {
         }
     }
 
-    let gain_map_image = decoder.decode().unwrap();
+    let mut gain_map_image = decoder.decode().unwrap();
+
+    let gain_map_image_info = decoder.info().unwrap();
+    println!(
+        "Info W{:?} H:{}",
+        gain_map_image_info.width, gain_map_image_info.height
+    );
+
+    if gain_map_image_info.components == 1 {
+        gain_map_image = gain_map_image.iter().flat_map(|&x| [x, x, x]).collect();
+    }
+
+    if gain_map_image_info.width != primary_metadata.width
+        || gain_map_image_info.height != primary_metadata.height
+    {
+        let source_image = ImageStore::<u8, 3> {
+            buffer: std::borrow::Cow::Borrowed(&gain_map_image),
+            width: gain_map_image_info.width as usize,
+            height: gain_map_image_info.height as usize,
+            channels: 3,
+            bit_depth: 8,
+            stride: gain_map_image_info.width as usize * 3,
+        };
+        let mut scaler = Scaler::new(ResamplingFunction::Lanczos3);
+        scaler.set_workload_strategy(WorkloadStrategy::PreferQuality);
+        let mut dst_image = ImageStoreMut::<u8, 3>::alloc(
+            primary_metadata.width as usize,
+            primary_metadata.height as usize,
+        );
+        scaler.resize_rgb(&source_image, &mut dst_image).unwrap();
+        gain_map_image = dst_image.buffer.borrow().to_vec();
+    }
 
     AssociatedImages {
         image: primary_image,
@@ -139,7 +182,7 @@ fn extract_images(file_path: &str) -> AssociatedImages {
 }
 
 fn main() {
-    let associated = extract_images("./assets/uhdr_01.jpg");
+    let associated = extract_images("./assets/04.jpg");
     // decoder.read_info().unwrap();
     // let img = image::ImageReader::open("./assets/hdr.avif")
     //     .unwrap()
@@ -166,7 +209,7 @@ fn main() {
 
     let gainmap = associated.metadata.to_gain_map();
 
-    let display_boost = 1.7f32;
+    let display_boost = 1.3f32;
     let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
     println!("weight {}", gainmap_weight);
 
@@ -176,15 +219,15 @@ fn main() {
         GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
     let gain_image =
         GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
-    let mut dst_image = GainImageMut::<u16, 3>::alloc(associated.width, associated.height);
+    let mut dst_image = GainImageMut::<u8, 3>::alloc(associated.width, associated.height);
 
     let dest_profile = ColorProfile::new_srgb();
 
-    apply_gain_map_rgb10(
-        &source_image.expand_to_u16(10).to_immutable_ref(),
+    apply_gain_map_rgb(
+        &source_image,
         &mut dst_image,
         &associated.icc_profile,
-        &gain_image.expand_to_u16(10).to_immutable_ref(),
+        &gain_image,
         &associated.gain_map_icc_profile,
         &dest_profile,
         gainmap,
@@ -195,17 +238,11 @@ fn main() {
     println!("Time {:?}", instant.elapsed());
 
     image::save_buffer(
-        "processed_alu10_d65.png",
-        &dst_image
-            .data
-            .borrow()
-            .iter()
-            .map(|&x| (x << 6) | (x >> 4))
-            .flat_map(|x| [x.to_ne_bytes()[0], x.to_ne_bytes()[1]])
-            .collect::<Vec<u8>>(),
+        "processed_alu10_d65_4.jpg",
+        &dst_image.data.borrow(),
         associated.width as u32,
         associated.height as u32,
-        image::ExtendedColorType::Rgb16,
+        image::ExtendedColorType::Rgb8,
     )
     .unwrap();
 }

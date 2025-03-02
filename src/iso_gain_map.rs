@@ -28,6 +28,7 @@
  */
 use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
+use quick_xml::Reader;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -104,20 +105,6 @@ fn read_u32_e(
 }
 
 #[inline]
-fn read_u16(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
-    if arr[*pos..].len() < 2 {
-        return Err(UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Input data too short".to_string()),
-        });
-    }
-    let s = &arr[*pos..*pos + 2];
-    let c = u16::from_be_bytes([s[0], s[1]]);
-    *pos += 2;
-    Ok(c)
-}
-
-#[inline]
 fn read_u16_e(
     arr: &[u8],
     pos: &mut usize,
@@ -135,20 +122,6 @@ fn read_u16_e(
     } else {
         u16::from_le_bytes([s[0], s[1]])
     };
-    *pos += 2;
-    Ok(c)
-}
-
-#[inline]
-fn read_u16_le(arr: &[u8], pos: &mut usize) -> Result<u16, UhdrErrorInfo> {
-    if arr[*pos..].len() < 2 {
-        return Err(UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Input data too short".to_string()),
-        });
-    }
-    let s = &arr[*pos..*pos + 2];
-    let c = u16::from_le_bytes([s[0], s[1]]);
     *pos += 2;
     Ok(c)
 }
@@ -447,10 +420,195 @@ impl MpfInfo {
 const IS_MULTICHANNEL_MASK: u8 = 1 << 7;
 const USE_BASE_COLORSPACE_MASK: u8 = 1 << 6;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename = "x:xmpmeta", rename_all = "camelCase")]
+struct XmlGainMapData {
+    #[serde(rename = "RDF")]
+    rdf: Rdf,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Rdf {
+    #[serde(rename = "Description")]
+    description: GainMapDescription,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GainMapDescription {
+    #[serde(rename = "@Version")]
+    version: String,
+    #[serde(rename = "@GainMapMin")]
+    gain_map_min: Option<f32>,
+
+    #[serde(rename = "@GainMapMax")]
+    gain_map_max: f32,
+
+    #[serde(rename = "@HDRCapacityMin")]
+    hdr_capacity_min: Option<f32>,
+
+    #[serde(rename = "@HDRCapacityMax")]
+    hdr_capacity_max: Option<f32>,
+
+    #[serde(rename = "@OffsetHDR")]
+    offset_hdr: Option<f32>,
+
+    #[serde(rename = "@OffsetSDR")]
+    offset_sdr: Option<f32>,
+
+    #[serde(rename = "@Gamma")]
+    gamma: Option<f32>,
+}
+
+fn float_to_unsigned_fraction_impl(v: f32, max_numerator: u32) -> Option<(u32, u32)> {
+    if v.is_nan() || v < 0.0 || v > max_numerator as f32 {
+        return None;
+    }
+
+    let max_d = if v <= 1.0 {
+        u32::MAX as u64
+    } else {
+        (max_numerator as f64 / v.floor() as f64) as u64
+    };
+
+    let mut denominator: u32 = 1;
+    let mut previous_d: u32 = 0;
+    let mut current_v = v.fract() as f64;
+    let max_iter = 39;
+
+    for _ in 0..max_iter {
+        let numerator_double = (denominator as f64) * (v as f64);
+        if numerator_double > max_numerator as f64 {
+            return None;
+        }
+
+        let numerator = numerator_double.round() as u32;
+        if (numerator_double - numerator as f64).abs() == 0.0 {
+            return Some((numerator, denominator));
+        }
+
+        current_v = 1.0 / current_v;
+        let new_d = previous_d as u64 + (current_v.floor() as u64) * (denominator as u64);
+        if new_d > max_d {
+            return Some((numerator, denominator));
+        }
+
+        previous_d = denominator;
+        if new_d > u32::MAX as u64 {
+            return None;
+        }
+
+        denominator = new_d as u32;
+        current_v -= current_v.floor();
+    }
+
+    let numerator = ((denominator as f64) * (v as f64)).round() as u32;
+    Some((numerator, denominator))
+}
+
+fn float_to_signed_fraction(v: f32) -> Option<(i32, u32)> {
+    let (numerator, denominator) = float_to_unsigned_fraction_impl(v, i32::MAX as u32)?;
+    let mut pos = numerator as i32;
+    if v < 0f32 {
+        pos *= -1;
+    }
+
+    Some((pos, denominator))
+}
+
+fn float_to_unsigned_fraction(v: f32) -> Option<(u32, u32)> {
+    float_to_unsigned_fraction_impl(v, i32::MAX as u32)
+}
+
+use quick_xml::de::from_str;
+
 impl IsoGainMap {
+    #[allow(clippy::field_reassign_with_default)]
+    pub fn from_xml_data(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
+        let xml_string = String::from_utf8(in_data.to_vec()).map_err(|_| UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Invalid ISO gain map XML".to_string()),
+        })?;
+        let mut reader = Reader::from_str(xml_string.as_ref());
+        reader.config_mut().trim_text(true);
+        let gain_map: XmlGainMapData =
+            from_str(xml_string.as_ref()).map_err(|_| UhdrErrorInfo {
+                error_code: UhdrErrorCode::InvalidParam,
+                detail: Some("Invalid ISO gain map XML".to_string()),
+            })?;
+        let (gain_map_max_n, gain_map_max_d) = float_to_signed_fraction(
+            gain_map.rdf.description.gain_map_max,
+        )
+        .ok_or(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Invalid ISO gain map XML".to_string()),
+        })?;
+        let (gain_map_min_n, gain_map_min_d) =
+            float_to_signed_fraction(gain_map.rdf.description.gain_map_min.unwrap_or(1.0f32))
+                .ok_or(UhdrErrorInfo {
+                    error_code: UhdrErrorCode::InvalidParam,
+                    detail: Some("Invalid ISO gain map XML".to_string()),
+                })?;
+        let (hdr_capacity_min_n, hdr_capacity_min_d) =
+            float_to_unsigned_fraction(gain_map.rdf.description.hdr_capacity_min.unwrap_or(1.0f32))
+                .ok_or(UhdrErrorInfo {
+                    error_code: UhdrErrorCode::InvalidParam,
+                    detail: Some("Invalid ISO gain map XML".to_string()),
+                })?;
+        let (hdr_capacity_max_n, hdr_capacity_max_d) =
+            float_to_unsigned_fraction(gain_map.rdf.description.hdr_capacity_max.unwrap_or(1.0f32))
+                .ok_or(UhdrErrorInfo {
+                    error_code: UhdrErrorCode::InvalidParam,
+                    detail: Some("Invalid ISO gain map XML".to_string()),
+                })?;
+        let (offset_hdr_n, offset_hdr_d) =
+            float_to_signed_fraction(gain_map.rdf.description.offset_hdr.unwrap_or(1f32 / 64f32))
+                .ok_or(UhdrErrorInfo {
+                error_code: UhdrErrorCode::InvalidParam,
+                detail: Some("Invalid ISO gain map XML".to_string()),
+            })?;
+        let (offset_sdr_n, offset_sdr_d) = float_to_signed_fraction(
+            gain_map
+                .rdf
+                .description
+                .offset_sdr
+                .unwrap_or(1.0f32 / 64f32),
+        )
+        .ok_or(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Invalid ISO gain map XML".to_string()),
+        })?;
+        let (gamma_n, gamma_d) = float_to_unsigned_fraction(
+            gain_map.rdf.description.gamma.unwrap_or(1.0f32),
+        )
+        .ok_or(UhdrErrorInfo {
+            error_code: UhdrErrorCode::InvalidParam,
+            detail: Some("Invalid ISO gain map XML".to_string()),
+        })?;
+        Ok(IsoGainMap {
+            gain_map_min_n: [gain_map_min_n, gain_map_min_n, gain_map_min_n],
+            gain_map_min_d: [gain_map_min_d, gain_map_min_d, gain_map_min_d],
+            gain_map_max_n: [gain_map_max_n, gain_map_max_n, gain_map_max_n],
+            gain_map_max_d: [gain_map_max_d, gain_map_max_d, gain_map_max_d],
+            gain_map_gamma_d: [gamma_d, gamma_d, gamma_d],
+            gain_map_gamma_n: [gamma_n, gamma_n, gamma_n],
+            base_offset_d: [offset_sdr_d, offset_sdr_d, offset_sdr_d],
+            base_offset_n: [offset_sdr_n, offset_sdr_n, offset_sdr_n],
+            alternate_offset_d: [offset_hdr_d, offset_hdr_d, offset_hdr_d],
+            alternate_offset_n: [offset_hdr_n, offset_hdr_n, offset_hdr_n],
+            alternate_hdr_headroom_d: hdr_capacity_max_n,
+            alternate_hdr_headroom_n: hdr_capacity_max_d,
+            base_hdr_headroom_n: hdr_capacity_min_n,
+            base_hdr_headroom_d: hdr_capacity_min_d,
+            use_base_color_space: true,
+            backward_direction: false,
+        })
+    }
+
     /// Converts a `Vec<u8>` into an [IsoGainMap]` struct
     #[allow(clippy::field_reassign_with_default)]
-    pub fn from_bytes(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
+    pub fn from_metadata(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
         if in_data.len() < 4 {
             return Err(UhdrErrorInfo {
                 error_code: UhdrErrorCode::InvalidParam,
