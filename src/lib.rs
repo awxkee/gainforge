@@ -47,7 +47,8 @@ pub use gain_image::{BufferStore, GainImage, GainImageMut};
 pub use gamma::{HdrTransferFunction, TransferFunction};
 pub use iso_gain_map::{
     make_gainmap_weight, IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo,
-    MpfNumberOfImages, MpfTag,
+    MpfNumberOfImages, MpfTag, UhdrDirectory, UhdrDirectoryContainer, UhdrDirectoryRdf,
+    UhdrDirectorySeq, UhdrItem, UhdrItemContainerLi, UhdrItemResource,
 };
 pub use mappers::ToneMappingMethod;
 pub use tonemapper::{

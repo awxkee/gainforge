@@ -523,6 +523,92 @@ fn float_to_unsigned_fraction(v: f32) -> Option<(u32, u32)> {
 
 use quick_xml::de::from_str;
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename = "x:xmpmeta")]
+pub struct UhdrDirectoryContainer {
+    #[serde(rename = "@xmptk")]
+    pub xmptk: Option<String>,
+
+    #[serde(rename = "RDF")]
+    pub rdf: UhdrDirectoryRdf,
+}
+
+impl UhdrDirectoryContainer {
+    pub fn from_xml(xml: &[u8]) -> Result<UhdrDirectoryContainer, UhdrErrorInfo> {
+        from_str::<UhdrDirectoryContainer>(String::from_utf8_lossy(xml).as_ref()).map_err(|x| {
+            UhdrErrorInfo {
+                error_code: UhdrErrorCode::InvalidParam,
+                detail: Some("Invalid UHDR directory".to_string()),
+            }
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UhdrDirectoryRdf {
+    #[serde(rename = "Description")]
+    pub description: UhdrDirectoryDescription,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UhdrDirectoryDescription {
+    #[serde(rename = "@about")]
+    pub about: Option<String>,
+
+    #[serde(rename = "@Version")]
+    pub version: Option<String>,
+
+    #[serde(rename = "@HasExtendedXMP")]
+    pub has_extended_xmp: Option<String>,
+
+    #[serde(rename = "Directory")]
+    pub directory: UhdrDirectorySeq,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename = "Directory")]
+pub struct UhdrDirectory {
+    #[serde(rename = "Seq")]
+    pub seq: Vec<UhdrDirectorySeq>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UhdrDirectorySeq {
+    #[serde(rename = "$value")]
+    pub items: Vec<UhdrItemResource>,
+
+    #[serde(rename = "parseType")]
+    pub parse_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UhdrItemResource {
+    #[serde(rename = "li")]
+    pub item: Vec<UhdrItemContainerLi>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UhdrItemContainerLi {
+    #[serde(rename = "Item")]
+    pub item: Vec<UhdrItem>,
+
+    #[serde(rename = "@parseType")]
+    pub parse_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UhdrItem {
+    #[serde(rename = "@Mime")]
+    pub mime: Option<String>,
+
+    #[serde(rename = "@Semantic")]
+    pub semantic: Option<String>,
+
+    #[serde(rename = "@Length")]
+    pub length: Option<u32>,
+}
+
 impl IsoGainMap {
     #[allow(clippy::field_reassign_with_default)]
     pub fn from_xml_data(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
