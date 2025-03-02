@@ -62,7 +62,6 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
     let primary_metadata = decoder.info().expect("No metadata found");
 
     // Multi picture format information, if you want to do something with it
-    // Atm supported only from marker
     let parsed_mpf =
         MpfInfo::from_bytes(&decoder.info().unwrap().multi_picture_information.unwrap()).unwrap();
 
