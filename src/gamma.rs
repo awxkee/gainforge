@@ -308,8 +308,8 @@ impl TransferFunction {
 
     pub(crate) fn generate_gamma_table_u8(&self) -> Box<[u8; 65636]> {
         let mut table = Box::new([0; 65636]);
-        for (i, value) in table.iter_mut().enumerate() {
-            *value = (self.gamma(i as f32 / 65535.) * 255.).round() as u8;
+        for (i, value) in table.iter_mut().take(8192).enumerate() {
+            *value = (self.gamma(i as f32 / 8192.) * 255.).round() as u8;
         }
         table
     }

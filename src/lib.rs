@@ -37,6 +37,7 @@ mod mappers;
 mod mlaf;
 mod tonemapper;
 
+use num_traits::Num;
 pub use apply_gain_map::{
     apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
     apply_gain_map_rgba, apply_gain_map_rgba10, apply_gain_map_rgba12, apply_gain_map_rgba16,
@@ -58,3 +59,15 @@ pub use tonemapper::{
     create_tone_mapper_rgba16, GainHDRMetadata, SyncToneMapper16Bit, SyncToneMapper8Bit,
     ToneMapper,
 };
+
+#[inline]
+pub(crate) fn m_clamp<T: Num + PartialOrd>(a: T, min: T, max: T) -> T {
+    if a > max {
+        max
+    } else if a >= min {
+        a
+    } else {
+        // a < min or a is NaN
+        min
+    }
+}

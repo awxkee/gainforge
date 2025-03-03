@@ -34,13 +34,14 @@ use crate::mappers::{
     Rec2408ToneMapper, ReinhardJodieToneMapper, ReinhardToneMapper, ToneMap,
 };
 use crate::mlaf::mlaf;
-use crate::{ToneMappingMethod, TransferFunction};
+use crate::{m_clamp, ToneMappingMethod, TransferFunction};
 use moxcms::{ColorProfile, Matrix3f};
 use num_traits::AsPrimitive;
 
 type SyncToneMap = dyn ToneMap + Send + Sync;
 
-pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize> {
+pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
+{
     pub(crate) linear_map: Box<[f32; N]>,
     pub(crate) gamma_map: Box<[T; 65636]>,
     pub(crate) gamut_color_conversion: Option<Matrix3f>,
@@ -60,8 +61,8 @@ pub trait ToneMapper<T> {
     fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError>;
 }
 
-impl<T: Copy + AsPrimitive<usize>, const N: usize, const CN: usize> ToneMapper<T>
-    for ToneMapperImpl<T, N, CN>
+impl<T: Copy + AsPrimitive<usize>, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
+    ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
 where
     u32: AsPrimitive<T>,
 {
@@ -106,19 +107,21 @@ where
                     chunk[2],
                     c.v[2][2],
                 );
-                chunk[0] = r;
-                chunk[1] = g;
-                chunk[2] = b;
+                chunk[0] = m_clamp(r, 0.0, 1.0);
+                chunk[1] = m_clamp(g, 0.0, 1.0);
+                chunk[2] = m_clamp(b, 0.0, 1.0);
             }
         }
+
+        let scale_value = (GAMMA_SIZE - 1) as f32;
 
         for (dst, src) in dst
             .chunks_exact_mut(CN)
             .zip(linearized_content.chunks_exact(CN))
         {
-            let r = mlaf(0.5f32, src[0], 65535f32) as u16;
-            let g = mlaf(0.5f32, src[1], 65535f32) as u16;
-            let b = mlaf(0.5f32, src[2], 65535f32) as u16;
+            let r = mlaf(0.5f32, src[0], scale_value) as u16;
+            let g = mlaf(0.5f32, src[1], scale_value) as u16;
+            let b = mlaf(0.5f32, src[2], scale_value) as u16;
             dst[0] = self.gamma_map[r as usize];
             dst[1] = self.gamma_map[g as usize];
             dst[2] = self.gamma_map[b as usize];
@@ -202,7 +205,7 @@ fn create_tone_mapper_u8<const CN: usize>(
         None
     };
     let tone_map = make_mapper::<CN>(content_hdr_metadata, input_color_space, method);
-    Box::new(ToneMapperImpl::<u8, 256, CN> {
+    Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
         linear_map: linear_table,
         gamma_map: gamma_table,
         gamut_color_conversion: conversion,
@@ -228,7 +231,7 @@ fn create_tone_mapper_u16<const CN: usize>(
         None
     };
     let tone_map = make_mapper::<CN>(content_hdr_metadata, input_color_space, method);
-    Box::new(ToneMapperImpl::<u16, 65536, CN> {
+    Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
         linear_map: linear_table,
         gamma_map: gamma_table,
         gamut_color_conversion: conversion,

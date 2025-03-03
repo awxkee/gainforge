@@ -535,7 +535,7 @@ pub struct UhdrDirectoryContainer {
 
 impl UhdrDirectoryContainer {
     pub fn from_xml(xml: &[u8]) -> Result<UhdrDirectoryContainer, UhdrErrorInfo> {
-        from_str::<UhdrDirectoryContainer>(String::from_utf8_lossy(xml).as_ref()).map_err(|x| {
+        from_str::<UhdrDirectoryContainer>(String::from_utf8_lossy(xml).as_ref()).map_err(|_| {
             UhdrErrorInfo {
                 error_code: UhdrErrorCode::InvalidParam,
                 detail: Some("Invalid UHDR directory".to_string()),

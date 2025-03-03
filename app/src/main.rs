@@ -29,10 +29,7 @@
 mod mlaf;
 mod parse;
 
-use gainforge::{
-    apply_gain_map_rgb, make_gainmap_weight, GainImage, GainImageMut, IsoGainMap, MpfInfo,
-    UhdrDirectory, UhdrDirectoryContainer,
-};
+use gainforge::{apply_gain_map_rgb, create_tone_mapper_rgb, make_gainmap_weight, GainHDRMetadata, GainImage, GainImageMut, GamutColorSpace, HdrTransferFunction, IsoGainMap, MpfInfo, ToneMappingMethod, TransferFunction, UhdrDirectory, UhdrDirectoryContainer};
 use moxcms::ColorProfile;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
@@ -76,7 +73,7 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
         .and_then(|icc| ColorProfile::new_from_slice(&icc).ok());
 
     // Read the second image from JPEG file
-    
+
     // This might be done using MPF
     // or by last read stream position.
 
@@ -161,66 +158,65 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
 }
 
 fn main() {
-    // decoder.read_info().unwrap();
-    // let img = image::ImageReader::open("./assets/hdr.avif")
-    //     .unwrap()
-    //     .decode()
-    //     .unwrap();
-    // let rgb = img.to_rgb8();
-    //
-    // let tone_mapper = create_tone_mapper_rgb(
-    //     GainHDRMetadata::new(1000f32, 250f32),
-    //     HdrTransferFunction::Pq,
-    //     GamutColorSpace::Bt2020,
-    //     TransferFunction::Srgb,
-    //     GamutColorSpace::Srgb,
-    //     ToneMappingMethod::Alu,
-    // );
-    // let dims = rgb.dimensions();
-    // let mut dst = vec![0u8; rgb.len()];
-    // for (src, dst) in rgb
-    //     .chunks_exact(rgb.dimensions().0 as usize * 3)
-    //     .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
-    // {
-    //     tone_mapper.tonemap_lane(src, dst).unwrap();
-    // }
+    let img = image::ImageReader::open("./assets/hdr.avif")
+        .unwrap()
+        .decode()
+        .unwrap();
+    let rgb = img.to_rgb8();
+    
+    let tone_mapper = create_tone_mapper_rgb(
+        GainHDRMetadata::new(1000f32, 250f32),
+        HdrTransferFunction::Pq,
+        GamutColorSpace::Bt2020,
+        TransferFunction::Srgb,
+        GamutColorSpace::Srgb,
+        ToneMappingMethod::Rec2408,
+    );
+    let dims = rgb.dimensions();
+    let mut dst = vec![0u8; rgb.len()];
+    for (src, dst) in rgb
+        .chunks_exact(rgb.dimensions().0 as usize * 3)
+        .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
+    {
+        tone_mapper.tonemap_lane(src, dst).unwrap();
+    }
 
     // Load required associated images
-    let associated = extract_images("./assets/02.jpg");
-
-    let gainmap = associated.metadata.to_gain_map();
-
-    // Get maximum display boost from screen information
-    let display_boost = 1.3f32;
-    let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
-
-    let source_image =
-        GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
-    let gain_image =
-        GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
-    let mut dst_image = GainImageMut::<u8, 3>::alloc(associated.width, associated.height);
-
-    // Screen colorspace
-    let dest_profile = ColorProfile::new_srgb();
-
-    // And finally apply gain map
-    apply_gain_map_rgb(
-        &source_image,
-        &associated.icc_profile,
-        &mut dst_image,
-        &dest_profile,
-        &gain_image,
-        &associated.gain_map_icc_profile,
-        gainmap,
-        gainmap_weight,
-    )
-    .unwrap();
+    // let associated = extract_images("./assets/02.jpg");
+    // 
+    // let gainmap = associated.metadata.to_gain_map();
+    // 
+    // // Get maximum display boost from screen information
+    // let display_boost = 1.3f32;
+    // let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
+    // 
+    // let source_image =
+    //     GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
+    // let gain_image =
+    //     GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
+    // let mut dst_image = GainImageMut::<u8, 3>::alloc(associated.width, associated.height);
+    // 
+    // // Screen colorspace
+    // let dest_profile = ColorProfile::new_srgb();
+    // 
+    // // And finally apply gain map
+    // apply_gain_map_rgb(
+    //     &source_image,
+    //     &associated.icc_profile,
+    //     &mut dst_image,
+    //     &dest_profile,
+    //     &gain_image,
+    //     &associated.gain_map_icc_profile,
+    //     gainmap,
+    //     gainmap_weight,
+    // )
+    // .unwrap();
 
     image::save_buffer(
-        "processed_alu10_d65_4.jpg",
-        &dst_image.data.borrow(),
-        associated.width as u32,
-        associated.height as u32,
+        "processed_alu10_d65.jpg",
+        &dst,
+        img.width(),
+        img.height(),
         image::ExtendedColorType::Rgb8,
     )
     .unwrap();
