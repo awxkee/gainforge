@@ -27,12 +27,16 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::mlaf::mlaf;
+use crate::spline::FilmicSplineParameters;
+use crate::GainHDRMetadata;
 use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Default)]
+/// Defines tone mapping method
+///
+/// All tone mappers are local unless other is stated.
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
-    #[default]
-    Rec2408,
+    Rec2408(GainHDRMetadata),
     Filmic,
     Aces,
     Reinhard,
@@ -40,6 +44,26 @@ pub enum ToneMappingMethod {
     ReinhardJodie,
     Clamp,
     Alu,
+    /// It is scene global tone mapper. Use appropriate methods to apply it.
+    Drago(DragoParameters),
+    FilmicSpline(FilmicSplineParameters),
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct DragoParameters {
+    pub relative_display_max_brightness: f32,
+    pub exposure: f32,
+    pub bias: f32,
+}
+
+impl Default for DragoParameters {
+    fn default() -> Self {
+        Self {
+            relative_display_max_brightness: 1.0f32,
+            exposure: 1f32,
+            bias: 0.85f32,
+        }
+    }
 }
 
 pub(crate) trait ToneMap {
@@ -373,6 +397,23 @@ impl<const CN: usize> ToneMap for AluToneMapper<CN> {
             chunk[0] = self.alu(chunk[0]).min(1f32);
             chunk[1] = self.alu(chunk[1]).min(1f32);
             chunk[2] = self.alu(chunk[2]).min(1f32);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct DragoToneMapper<const CN: usize> {
+    pub(crate) asymp_power: f32, // log(b) / log(0.5)
+    pub(crate) exposure: f32,
+    pub(crate) j_num: f32, // relative_display_max_brightness * 0.01
+}
+
+impl<const CN: usize> DragoToneMapper<CN> {
+    pub(crate) fn new(drago_parameters: DragoParameters) -> Self {
+        Self {
+            j_num: drago_parameters.relative_display_max_brightness,
+            asymp_power: drago_parameters.bias.log2() / 0.5f32.log2(),
+            exposure: drago_parameters.exposure,
         }
     }
 }
