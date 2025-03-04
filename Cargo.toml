@@ -18,7 +18,7 @@ rust-version = "1.82.0"
 
 [dependencies]
 num-traits = "0.2.19"
-moxcms = "0.2.3"
+moxcms = {path = "./../../RustroverProjects/moxcms"}
 quick-xml = { version =  "0.37.2", features = ["serde", "serde-types", "serialize"] }
 serde = { version = "1.0.218", features = ["derive"] }
 

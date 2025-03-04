@@ -8,6 +8,6 @@ image = { version = "0.25.5", features = ["avif-native"] }
 gainforge = { path = "../" }
 turbojpeg = "1.2.2"
 num-traits = "0.2.19"
-moxcms = "0.2.3"
+moxcms = {path = "../../../RustroverProjects/moxcms"}
 zune-jpeg = { git = "https://github.com/etemesi254/zune-image" }
 pic-scale = "0.5.3"

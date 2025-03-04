@@ -30,12 +30,12 @@ use crate::cms::GamutColorSpace;
 use crate::err::ForgeError;
 use crate::gamma::HdrTransferFunction;
 use crate::mappers::{
-    AcesToneMapper, AluToneMapper, ClampToneMapper, DragoToneMapper, ExtendedReinhardToneMapper,
-    FilmicToneMapper, Rec2408ToneMapper, ReinhardJodieToneMapper, ReinhardToneMapper, ToneMap,
+    AcesToneMapper, AluToneMapper, ClampToneMapper, ExtendedReinhardToneMapper, FilmicToneMapper,
+    Rec2408ToneMapper, ReinhardJodieToneMapper, ReinhardToneMapper, ToneMap,
 };
 use crate::mlaf::mlaf;
 use crate::spline::{create_spline, SplineToneMapper};
-use crate::{m_clamp, GainImage, GainImageMut, ToneMappingMethod, TransferFunction};
+use crate::{m_clamp, ToneMappingMethod, TransferFunction};
 use moxcms::{gamut_clip_preserve_chroma, CmsError, ColorProfile, InPlaceStage, Matrix3f, Rgb};
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
@@ -47,6 +47,9 @@ pub enum GamutClipping {
     NoClip,
     Clip,
 }
+
+pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
+pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
 
 type SyncToneMap = dyn ToneMap + Send + Sync;
 
@@ -130,7 +133,7 @@ pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const
     tone_map: Box<SyncToneMap>,
 }
 
-pub trait ToneMapper<T: Copy + Default + Debug, const N: usize> {
+pub trait ToneMapper<T: Copy + Default + Debug> {
     /// Tone map image lane.
     ///
     /// Lane length must be multiple of channels.
@@ -141,16 +144,6 @@ pub trait ToneMapper<T: Copy + Default + Debug, const N: usize> {
     ///
     /// Lane length must be multiple of channels.
     fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError>;
-
-    /// Tone map whole image.
-    ///
-    /// For local tone mapper it is just passthrough to [ToneMapper::tonemap_lane].
-    /// For global tone mappers this call is required.
-    fn tonemap_image(
-        &self,
-        src: &GainImage<'_, T, N>,
-        dst: &mut GainImageMut<'_, T, N>,
-    ) -> Result<(), ForgeError>;
 }
 
 impl<
@@ -158,7 +151,7 @@ impl<
         const N: usize,
         const CN: usize,
         const GAMMA_SIZE: usize,
-    > ToneMapper<T, CN> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
+    > ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
 where
     u32: AsPrimitive<T>,
 {
@@ -226,199 +219,6 @@ where
         self.tone_map.process_lane(in_place);
         Ok(())
     }
-
-    fn tonemap_image(
-        &self,
-        src: &GainImage<'_, T, CN>,
-        dst: &mut GainImageMut<'_, T, CN>,
-    ) -> Result<(), ForgeError> {
-        assert!(CN == 3 || CN == 4);
-        src.check_layout()?;
-        dst.check_layout()?;
-        src.size_matches_mut(dst)?;
-        let dst_stride = dst.row_stride();
-        let dst_width = dst.width;
-        for (src_row, dst_row) in src
-            .data
-            .as_ref()
-            .chunks_exact(src.row_stride())
-            .zip(dst.data.borrow_mut().chunks_exact_mut(dst_stride))
-        {
-            let src = &src_row[..src.width * CN];
-            let dst = &mut dst_row[..dst_width * CN];
-            self.tonemap_lane(src, dst)?;
-        }
-        Ok(())
-    }
-}
-
-pub(crate) struct DragoToneMapperImpl<
-    T: Copy,
-    const N: usize,
-    const CN: usize,
-    const GAMMA_SIZE: usize,
-> {
-    pub(crate) linear_map: Box<[f32; N]>,
-    pub(crate) gamma_map: Box<[T; 65636]>,
-    pub(crate) gamut_clipping: GamutClipping,
-    tone_map: DragoToneMapper<CN>,
-    primaries: [f32; 3],
-}
-
-impl<
-        T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
-        const N: usize,
-        const CN: usize,
-        const GAMMA_SIZE: usize,
-    > DragoToneMapperImpl<T, N, CN, GAMMA_SIZE>
-where
-    u32: AsPrimitive<T>,
-{
-    fn process_image(
-        &self,
-        src: &[T],
-        src_stride: usize,
-        dst: &mut [T],
-        dst_stride: usize,
-        width: usize,
-        height: usize,
-    ) -> Result<(), ForgeError> {
-        let mut linearized_content = vec![0f32; width * height * CN];
-        for (src_row, dst_row) in src
-            .as_ref()
-            .chunks_exact(src_stride)
-            .zip(linearized_content.chunks_exact_mut(width * CN))
-        {
-            let src = &src_row[..width * CN];
-            for (chunk, dst) in src.chunks_exact(CN).zip(dst_row.chunks_exact_mut(CN)) {
-                dst[0] = self.linear_map[chunk[0].as_()];
-                dst[1] = self.linear_map[chunk[1].as_()];
-                dst[2] = self.linear_map[chunk[2].as_()];
-                if CN == 4 {
-                    dst[3] = f32::from_bits(src[3].as_() as u32);
-                }
-            }
-        }
-        let mut intensity_map = vec![0f32; width * height];
-        let mut scene_max = 0f32;
-        for (chunk, dst) in linearized_content
-            .chunks_exact(CN)
-            .zip(intensity_map.iter_mut())
-        {
-            let l = chunk[0] * self.primaries[0]
-                + chunk[1] * self.primaries[1]
-                + chunk[2] * self.primaries[2];
-            *dst = l;
-            scene_max = l.max(scene_max);
-        }
-
-        if scene_max == 0f32 {
-            scene_max = 1f32;
-        }
-
-        let common_den = (scene_max + 1f32).log10();
-        let l_scale = self.tone_map.j_num / common_den;
-
-        if self.gamut_clipping == GamutClipping::Clip {
-            for (dst_row, &luma) in linearized_content
-                .chunks_exact_mut(CN)
-                .zip(intensity_map.iter())
-            {
-                let luma = self.tone_map.exposure * luma;
-                let n1 = (luma + 1f32).log2();
-                let d1 = (2f32 + (luma / scene_max).powf(self.tone_map.asymp_power) * 8f32).log2();
-                let ld = l_scale * n1 / d1;
-                if ld == 0f32 {
-                    continue;
-                }
-                let new_rgb = Rgb::new(
-                    dst_row[0] * self.tone_map.exposure / luma * ld,
-                    dst_row[1] * self.tone_map.exposure / luma * ld,
-                    dst_row[2] * self.tone_map.exposure / luma * ld,
-                );
-                let clipped_rgb = gamut_clip_preserve_chroma(new_rgb).clamp(0.0, 1.0);
-                dst_row[0] = clipped_rgb.r;
-                dst_row[1] = clipped_rgb.g;
-                dst_row[2] = clipped_rgb.b;
-            }
-        } else {
-            for (dst_row, &luma) in linearized_content
-                .chunks_exact_mut(CN)
-                .zip(intensity_map.iter())
-            {
-                let luma = self.tone_map.exposure * luma;
-                let n1 = (luma + 1f32).log2();
-                let d1 = (2f32 + (luma / scene_max).powf(self.tone_map.asymp_power) * 8f32).log2();
-                let ld = l_scale * n1 / d1;
-                if ld == 0f32 {
-                    continue;
-                }
-                dst_row[0] = m_clamp(dst_row[0] * self.tone_map.exposure / luma * ld, 0.0, 1.0);
-                dst_row[1] = m_clamp(dst_row[1] * self.tone_map.exposure / luma * ld, 0.0, 1.0);
-                dst_row[2] = m_clamp(dst_row[2] * self.tone_map.exposure / luma * ld, 0.0, 1.0);
-            }
-        }
-
-        let scale_value = (GAMMA_SIZE - 1) as f32;
-
-        for (dst, lin) in dst
-            .chunks_exact_mut(dst_stride)
-            .zip(linearized_content.chunks_exact_mut(width * CN))
-        {
-            for (dst, src) in dst.chunks_exact_mut(CN).zip(lin.chunks_exact(CN)) {
-                let r = mlaf(0.5f32, src[0], scale_value) as u16;
-                let g = mlaf(0.5f32, src[1], scale_value) as u16;
-                let b = mlaf(0.5f32, src[2], scale_value) as u16;
-                dst[0] = self.gamma_map[r as usize];
-                dst[1] = self.gamma_map[g as usize];
-                dst[2] = self.gamma_map[b as usize];
-                if CN == 4 {
-                    dst[3] = src[3].to_bits().as_();
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl<
-        T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
-        const N: usize,
-        const CN: usize,
-        const GAMMA_SIZE: usize,
-    > ToneMapper<T, CN> for DragoToneMapperImpl<T, N, CN, GAMMA_SIZE>
-where
-    u32: AsPrimitive<T>,
-{
-    fn tonemap_lane(&self, _: &[T], _: &mut [T]) -> Result<(), ForgeError> {
-        unreachable!("You must not use tonemap lane on global tone mapper")
-    }
-
-    fn tonemap_linearized_lane(&self, _: &mut [f32]) -> Result<(), ForgeError> {
-        unreachable!("You must not use tonemap lane on global tone mapper")
-    }
-
-    fn tonemap_image(
-        &self,
-        src: &GainImage<'_, T, CN>,
-        dst: &mut GainImageMut<'_, T, CN>,
-    ) -> Result<(), ForgeError> {
-        assert!(CN == 3 || CN == 4);
-        src.check_layout()?;
-        dst.check_layout()?;
-        src.size_matches_mut(dst)?;
-        let dst_stride = dst.row_stride();
-        self.process_image(
-            src.data.as_ref(),
-            src.row_stride(),
-            dst.data.borrow_mut(),
-            dst_stride,
-            src.width,
-            src.height,
-        )?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
@@ -472,7 +272,7 @@ fn create_tone_mapper_u8<const CN: usize>(
     output_color_space: GamutColorSpace,
     method: ToneMappingMethod,
     gamut_clipping: GamutClipping,
-) -> Box<dyn ToneMapper<u8, CN> + Send + Sync> {
+) -> Box<SyncToneMapper8Bit> {
     let linear_table = hdr_transfer_function.generate_linear_table_u8();
     let gamma_table = display_transfer_function.generate_gamma_table_u8();
     let conversion = if input_color_space != output_color_space {
@@ -492,28 +292,14 @@ fn create_tone_mapper_u8<const CN: usize>(
         };
         c
     });
-    match method {
-        ToneMappingMethod::Drago(params) => {
-            let tone_map = DragoToneMapperImpl::<u8, 256, CN, 8192> {
-                linear_map: linear_table,
-                gamma_map: gamma_table,
-                primaries: input_color_space.luma_primaries(),
-                gamut_clipping,
-                tone_map: DragoToneMapper::new(params),
-            };
-            Box::new(tone_map)
-        }
-        _ => {
-            let tone_map = make_mapper::<CN>(input_color_space, method);
+    let tone_map = make_mapper::<CN>(input_color_space, method);
 
-            Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
-                linear_map: linear_table,
-                gamma_map: gamma_table,
-                im_stage,
-                tone_map,
-            })
-        }
-    }
+    Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
+        linear_map: linear_table,
+        gamma_map: gamma_table,
+        im_stage,
+        tone_map,
+    })
 }
 
 fn create_tone_mapper_u16<const CN: usize>(
@@ -524,7 +310,7 @@ fn create_tone_mapper_u16<const CN: usize>(
     output_color_space: GamutColorSpace,
     method: ToneMappingMethod,
     gamut_clipping: GamutClipping,
-) -> Box<dyn ToneMapper<u16, CN> + Send + Sync> {
+) -> Box<SyncToneMapper16Bit> {
     assert!((8..=16).contains(&bit_depth));
     let linear_table = hdr_transfer_function.generate_linear_table_u16(bit_depth);
     let gamma_table = display_transfer_function.generate_gamma_table_u16(bit_depth);
@@ -545,27 +331,13 @@ fn create_tone_mapper_u16<const CN: usize>(
         };
         c
     });
-    match method {
-        ToneMappingMethod::Drago(params) => {
-            let tone_map = DragoToneMapperImpl::<u16, 65536, CN, 65536> {
-                linear_map: linear_table,
-                gamma_map: gamma_table,
-                primaries: input_color_space.luma_primaries(),
-                gamut_clipping,
-                tone_map: DragoToneMapper::new(params),
-            };
-            Box::new(tone_map)
-        }
-        _ => {
-            let tone_map = make_mapper::<CN>(input_color_space, method);
-            Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
-                linear_map: linear_table,
-                gamma_map: gamma_table,
-                im_stage,
-                tone_map,
-            })
-        }
-    }
+    let tone_map = make_mapper::<CN>(input_color_space, method);
+    Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
+        linear_map: linear_table,
+        gamma_map: gamma_table,
+        im_stage,
+        tone_map,
+    })
 }
 
 fn make_mapper<const CN: usize>(
@@ -590,7 +362,6 @@ fn make_mapper<const CN: usize>(
         ToneMappingMethod::Reinhard => Box::new(ReinhardToneMapper::<CN>::default()),
         ToneMappingMethod::Clamp => Box::new(ClampToneMapper::<CN>::default()),
         ToneMappingMethod::Alu => Box::new(AluToneMapper::<CN>::default()),
-        ToneMappingMethod::Drago(_) => unreachable!(),
         ToneMappingMethod::FilmicSpline(params) => {
             let spline = create_spline(params);
             Box::new(SplineToneMapper::<CN> {
@@ -623,7 +394,7 @@ returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
             output_color_space: GamutColorSpace,
             method: ToneMappingMethod,
             gamut_clipping: GamutClipping,
-        ) -> Box<dyn ToneMapper<u8, $cn> + Send + Sync> {
+        ) -> Box<SyncToneMapper8Bit> {
             create_tone_mapper_u8::<$cn>(
                 hdr_transfer_function,
                 input_color_space,
@@ -660,7 +431,7 @@ returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
             output_color_space: GamutColorSpace,
             method: ToneMappingMethod,
             gamut_clipping: GamutClipping,
-        ) -> Box<dyn ToneMapper<u16, $cn> + Send + Sync> {
+        ) -> Box<SyncToneMapper16Bit> {
             create_tone_mapper_u16::<$cn>(
                 $bp,
                 hdr_transfer_function,

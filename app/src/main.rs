@@ -30,9 +30,9 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, BufferStore, DragoParameters, FilmicSplineParameters, GainHDRMetadata,
-    GainImage, GainImageMut, GamutClipping, GamutColorSpace, HdrTransferFunction, IsoGainMap,
-    MpfInfo, ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+    create_tone_mapper_rgb, BufferStore, FilmicSplineParameters, GainHDRMetadata, GainImage,
+    GainImageMut, GamutClipping, GamutColorSpace, HdrTransferFunction, IsoGainMap, MpfInfo,
+    ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
 };
 use moxcms::ColorProfile;
 use std::fs::File;
@@ -188,30 +188,14 @@ fn main() {
     );
     let dims = rgb.dimensions();
     let mut dst = vec![0u8; rgb.len()];
-    let src_image = GainImage::<u8, 3> {
-        data: std::borrow::Cow::Borrowed(&rgb),
-        width: dims.0 as usize,
-        height: dims.1 as usize,
-        stride: dims.0 as usize * 3,
-    };
-    let mut dst_image = GainImageMut::<u8, 3> {
-        data: BufferStore::Borrowed(&mut dst),
-        width: dims.0 as usize,
-        height: dims.1 as usize,
-        stride: dims.0 as usize * 3,
-    };
     let work_time = Instant::now();
-    tone_mapper
-        .tonemap_image(&src_image, &mut dst_image)
-        .unwrap();
+    for (src, dst) in rgb
+        .chunks_exact(rgb.dimensions().0 as usize * 3)
+        .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
+    {
+        tone_mapper.tonemap_lane(src, dst).unwrap();
+    }
     println!("Exec time: {:?}", work_time.elapsed());
-    // for (src, dst) in rgb
-    //     .chunks_exact(rgb.dimensions().0 as usize * 3)
-    //     .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
-    // {
-    //     tone_mapper.tonemap_lane(src, dst).unwrap();
-    // }
-
     // Load required associated images
     // let associated = extract_images("./assets/02.jpg");
     //
@@ -244,7 +228,7 @@ fn main() {
     // .unwrap();
 
     image::save_buffer(
-        "clamp.jpg",
+        "clamp1.jpg",
         &dst,
         img.width(),
         img.height(),
