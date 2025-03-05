@@ -27,12 +27,16 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::mlaf::mlaf;
+use crate::spline::FilmicSplineParameters;
+use crate::GainHdrMetadata;
 use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Default)]
+/// Defines tone mapping method
+///
+/// All tone mappers are local unless other is stated.
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
-    #[default]
-    Rec2408,
+    Rec2408(GainHdrMetadata),
     Filmic,
     Aces,
     Reinhard,
@@ -40,6 +44,7 @@ pub enum ToneMappingMethod {
     ReinhardJodie,
     Clamp,
     Alu,
+    FilmicSpline(FilmicSplineParameters),
 }
 
 pub(crate) trait ToneMap {

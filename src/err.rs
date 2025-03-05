@@ -54,6 +54,7 @@ pub enum ForgeError {
     ZeroBaseSize,
     MinimumSliceSizeMismatch(MismatchedSize),
     MinimumStrideSizeMismatch(MismatchedSize),
+    UnknownError,
 }
 
 impl Display for ForgeError {
@@ -89,6 +90,7 @@ impl Display for ForgeError {
                 "Minimum stride must have size at least {} but it is {}",
                 size.expected, size.received
             )),
+            ForgeError::UnknownError => f.write_str("Unknown error"),
         }
     }
 }

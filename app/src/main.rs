@@ -29,10 +29,15 @@
 mod mlaf;
 mod parse;
 
-use gainforge::{apply_gain_map_rgb, create_tone_mapper_rgb, make_gainmap_weight, GainHDRMetadata, GainImage, GainImageMut, GamutColorSpace, HdrTransferFunction, IsoGainMap, MpfInfo, ToneMappingMethod, TransferFunction, UhdrDirectory, UhdrDirectoryContainer};
+use gainforge::{
+    create_tone_mapper_rgb, BufferStore, FilmicSplineParameters, GainHdrMetadata, GainImage,
+    GainImageMut, GamutClipping, GamutColorSpace, HdrTransferFunction, IsoGainMap, MpfInfo,
+    ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+};
 use moxcms::ColorProfile;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
+use std::time::Instant;
 use zune_jpeg::JpegDecoder;
 
 pub struct GainMapAssociationGroup {
@@ -158,47 +163,57 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
 }
 
 fn main() {
-    let img = image::ImageReader::open("./assets/hdr.avif")
+    let img = image::ImageReader::open("./assets/08_base_hdr.avif")
         .unwrap()
         .decode()
         .unwrap();
     let rgb = img.to_rgb8();
-    
+
     let tone_mapper = create_tone_mapper_rgb(
-        GainHDRMetadata::new(1000f32, 250f32),
         HdrTransferFunction::Pq,
         GamutColorSpace::Bt2020,
         TransferFunction::Srgb,
         GamutColorSpace::Srgb,
-        ToneMappingMethod::Rec2408,
+        ToneMappingMethod::FilmicSpline(FilmicSplineParameters {
+            saturation: 0f32,
+            white_point_source: 8f32,
+            black_point_source: -8f32,
+            black_point_target: 0.01f32,
+            ..Default::default()
+        }),
+        // ToneMappingMethod::Rec2408(GainHDRMetadata::new(2000f32, 250f32)),
+        GamutClipping::Clip,
+        // ToneMappingMethod::Rec2408(GainHDRMetadata::new(2000f32, 250f32)),
+        // ToneMappingMethod::Rec2408(GainHDRMetadata::new(1000f32, 250f32)),
     );
     let dims = rgb.dimensions();
     let mut dst = vec![0u8; rgb.len()];
+    let work_time = Instant::now();
     for (src, dst) in rgb
         .chunks_exact(rgb.dimensions().0 as usize * 3)
         .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
     {
         tone_mapper.tonemap_lane(src, dst).unwrap();
     }
-
+    println!("Exec time: {:?}", work_time.elapsed());
     // Load required associated images
     // let associated = extract_images("./assets/02.jpg");
-    // 
+    //
     // let gainmap = associated.metadata.to_gain_map();
-    // 
+    //
     // // Get maximum display boost from screen information
     // let display_boost = 1.3f32;
     // let gainmap_weight = make_gainmap_weight(gainmap, display_boost);
-    // 
+    //
     // let source_image =
     //     GainImage::<u8, 3>::borrow(&associated.image, associated.width, associated.height);
     // let gain_image =
     //     GainImage::<u8, 3>::borrow(&associated.gain_map, associated.width, associated.height);
     // let mut dst_image = GainImageMut::<u8, 3>::alloc(associated.width, associated.height);
-    // 
+    //
     // // Screen colorspace
     // let dest_profile = ColorProfile::new_srgb();
-    // 
+    //
     // // And finally apply gain map
     // apply_gain_map_rgb(
     //     &source_image,
@@ -213,7 +228,7 @@ fn main() {
     // .unwrap();
 
     image::save_buffer(
-        "processed_alu10_d65.jpg",
+        "clamp1.jpg",
         &dst,
         img.width(),
         img.height(),

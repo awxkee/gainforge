@@ -34,21 +34,106 @@ use crate::mappers::{
     Rec2408ToneMapper, ReinhardJodieToneMapper, ReinhardToneMapper, ToneMap,
 };
 use crate::mlaf::mlaf;
+use crate::spline::{create_spline, SplineToneMapper};
 use crate::{m_clamp, ToneMappingMethod, TransferFunction};
-use moxcms::{ColorProfile, Matrix3f};
+use moxcms::{gamut_clip_preserve_chroma, CmsError, ColorProfile, InPlaceStage, Matrix3f, Rgb};
 use num_traits::AsPrimitive;
+use std::fmt::Debug;
+
+/// Defines gamut clipping mode
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum GamutClipping {
+    #[default]
+    NoClip,
+    Clip,
+}
+
+pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
+pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
 
 type SyncToneMap = dyn ToneMap + Send + Sync;
+
+struct MatrixStage<const CN: usize> {
+    pub(crate) gamut_color_conversion: Matrix3f,
+}
+
+impl<const CN: usize> InPlaceStage for MatrixStage<CN> {
+    fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
+        let c = self.gamut_color_conversion;
+        for chunk in dst.chunks_exact_mut(CN) {
+            let r = mlaf(
+                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
+                chunk[2],
+                c.v[0][2],
+            );
+            let g = mlaf(
+                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
+                chunk[2],
+                c.v[1][2],
+            );
+            let b = mlaf(
+                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
+                chunk[2],
+                c.v[2][2],
+            );
+
+            chunk[0] = m_clamp(r, 0.0, 1.0);
+            chunk[1] = m_clamp(g, 0.0, 1.0);
+            chunk[2] = m_clamp(b, 0.0, 1.0);
+        }
+        Ok(())
+    }
+}
+
+struct MatrixGamutClipping<const CN: usize> {
+    pub(crate) gamut_color_conversion: Matrix3f,
+}
+
+impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
+    fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
+        let c = self.gamut_color_conversion;
+        for chunk in dst.chunks_exact_mut(CN) {
+            let r = mlaf(
+                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
+                chunk[2],
+                c.v[0][2],
+            );
+            let g = mlaf(
+                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
+                chunk[2],
+                c.v[1][2],
+            );
+            let b = mlaf(
+                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
+                chunk[2],
+                c.v[2][2],
+            );
+
+            let mut rgb = Rgb::new(r, g, b);
+            if rgb.is_out_of_gamut() {
+                rgb = gamut_clip_preserve_chroma(rgb);
+                chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
+                chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
+                chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
+            } else {
+                chunk[0] = m_clamp(r, 0.0, 1.0);
+                chunk[1] = m_clamp(g, 0.0, 1.0);
+                chunk[2] = m_clamp(b, 0.0, 1.0);
+            }
+        }
+        Ok(())
+    }
+}
 
 pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
 {
     pub(crate) linear_map: Box<[f32; N]>,
     pub(crate) gamma_map: Box<[T; 65636]>,
-    pub(crate) gamut_color_conversion: Option<Matrix3f>,
+    pub(crate) im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
     tone_map: Box<SyncToneMap>,
 }
 
-pub trait ToneMapper<T> {
+pub trait ToneMapper<T: Copy + Default + Debug> {
     /// Tone map image lane.
     ///
     /// Lane length must be multiple of channels.
@@ -61,8 +146,12 @@ pub trait ToneMapper<T> {
     fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError>;
 }
 
-impl<T: Copy + AsPrimitive<usize>, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
-    ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
+impl<
+        T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
+        const N: usize,
+        const CN: usize,
+        const GAMMA_SIZE: usize,
+    > ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
 where
     u32: AsPrimitive<T>,
 {
@@ -90,26 +179,15 @@ where
 
         self.tonemap_linearized_lane(&mut linearized_content)?;
 
-        if let Some(c) = self.gamut_color_conversion {
+        if let Some(c) = &self.im_stage {
+            c.transform(&mut linearized_content)
+                .map_err(|_| ForgeError::UnknownError)?;
+        } else {
             for chunk in linearized_content.chunks_exact_mut(CN) {
-                let r = mlaf(
-                    mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
-                    chunk[2],
-                    c.v[0][2],
-                );
-                let g = mlaf(
-                    mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
-                    chunk[2],
-                    c.v[1][2],
-                );
-                let b = mlaf(
-                    mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
-                    chunk[2],
-                    c.v[2][2],
-                );
-                chunk[0] = m_clamp(r, 0.0, 1.0);
-                chunk[1] = m_clamp(g, 0.0, 1.0);
-                chunk[2] = m_clamp(b, 0.0, 1.0);
+                let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
+                chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
+                chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
+                chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
             }
         }
 
@@ -143,13 +221,13 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GainHDRMetadata {
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+pub struct GainHdrMetadata {
     pub content_max_brightness: f32,
     pub display_max_brightness: f32,
 }
 
-impl Default for GainHDRMetadata {
+impl Default for GainHdrMetadata {
     fn default() -> Self {
         Self {
             content_max_brightness: 1000f32,
@@ -158,7 +236,7 @@ impl Default for GainHDRMetadata {
     }
 }
 
-impl GainHDRMetadata {
+impl GainHdrMetadata {
     pub fn new(content_max_brightness: f32, display_max_brightness: f32) -> Self {
         Self {
             content_max_brightness,
@@ -167,13 +245,10 @@ impl GainHDRMetadata {
     }
 }
 
-pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
-pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
-
 fn make_icc_transform(
     input_color_space: GamutColorSpace,
     output_color_space: GamutColorSpace,
-) -> Matrix3f {
+) -> (ColorProfile, ColorProfile, Matrix3f) {
     let target_gamut = match output_color_space {
         GamutColorSpace::Srgb => ColorProfile::new_srgb(),
         GamutColorSpace::DisplayP3 => ColorProfile::new_display_p3(),
@@ -184,18 +259,19 @@ fn make_icc_transform(
         GamutColorSpace::DisplayP3 => ColorProfile::new_display_p3(),
         GamutColorSpace::Bt2020 => ColorProfile::new_bt2020(),
     };
-    source_gamut
+    let matrix = source_gamut
         .transform_matrix(&target_gamut)
-        .unwrap_or(Matrix3f::IDENTITY)
+        .unwrap_or(Matrix3f::IDENTITY);
+    (source_gamut, target_gamut, matrix)
 }
 
 fn create_tone_mapper_u8<const CN: usize>(
-    content_hdr_metadata: GainHDRMetadata,
     hdr_transfer_function: HdrTransferFunction,
     input_color_space: GamutColorSpace,
     display_transfer_function: TransferFunction,
     output_color_space: GamutColorSpace,
     method: ToneMappingMethod,
+    gamut_clipping: GamutClipping,
 ) -> Box<SyncToneMapper8Bit> {
     let linear_table = hdr_transfer_function.generate_linear_table_u8();
     let gamma_table = display_transfer_function.generate_gamma_table_u8();
@@ -204,23 +280,36 @@ fn create_tone_mapper_u8<const CN: usize>(
     } else {
         None
     };
-    let tone_map = make_mapper::<CN>(content_hdr_metadata, input_color_space, method);
+    let im_stage: Option<Box<dyn InPlaceStage + Send + Sync>> = conversion.as_ref().map(|x| {
+        let c: Box<dyn InPlaceStage + Send + Sync> = if gamut_clipping == GamutClipping::Clip {
+            Box::new(MatrixGamutClipping::<CN> {
+                gamut_color_conversion: x.2,
+            })
+        } else {
+            Box::new(MatrixStage::<CN> {
+                gamut_color_conversion: x.2,
+            })
+        };
+        c
+    });
+    let tone_map = make_mapper::<CN>(input_color_space, method);
+
     Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
         linear_map: linear_table,
         gamma_map: gamma_table,
-        gamut_color_conversion: conversion,
+        im_stage,
         tone_map,
     })
 }
 
 fn create_tone_mapper_u16<const CN: usize>(
     bit_depth: usize,
-    content_hdr_metadata: GainHDRMetadata,
     hdr_transfer_function: HdrTransferFunction,
     input_color_space: GamutColorSpace,
     display_transfer_function: TransferFunction,
     output_color_space: GamutColorSpace,
     method: ToneMappingMethod,
+    gamut_clipping: GamutClipping,
 ) -> Box<SyncToneMapper16Bit> {
     assert!((8..=16).contains(&bit_depth));
     let linear_table = hdr_transfer_function.generate_linear_table_u16(bit_depth);
@@ -230,24 +319,35 @@ fn create_tone_mapper_u16<const CN: usize>(
     } else {
         None
     };
-    let tone_map = make_mapper::<CN>(content_hdr_metadata, input_color_space, method);
+    let im_stage: Option<Box<dyn InPlaceStage + Send + Sync>> = conversion.as_ref().map(|x| {
+        let c: Box<dyn InPlaceStage + Send + Sync> = if gamut_clipping == GamutClipping::Clip {
+            Box::new(MatrixGamutClipping::<CN> {
+                gamut_color_conversion: x.2,
+            })
+        } else {
+            Box::new(MatrixStage::<CN> {
+                gamut_color_conversion: x.2,
+            })
+        };
+        c
+    });
+    let tone_map = make_mapper::<CN>(input_color_space, method);
     Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
         linear_map: linear_table,
         gamma_map: gamma_table,
-        gamut_color_conversion: conversion,
+        im_stage,
         tone_map,
     })
 }
 
 fn make_mapper<const CN: usize>(
-    content_hdr_metadata: GainHDRMetadata,
     input_color_space: GamutColorSpace,
     method: ToneMappingMethod,
 ) -> Box<SyncToneMap> {
     let tone_map: Box<SyncToneMap> = match method {
-        ToneMappingMethod::Rec2408 => Box::new(Rec2408ToneMapper::<CN>::new(
-            content_hdr_metadata.content_max_brightness,
-            content_hdr_metadata.display_max_brightness,
+        ToneMappingMethod::Rec2408(data) => Box::new(Rec2408ToneMapper::<CN>::new(
+            data.content_max_brightness,
+            data.display_max_brightness,
             203f32,
             input_color_space.luma_primaries(),
         )),
@@ -262,6 +362,13 @@ fn make_mapper<const CN: usize>(
         ToneMappingMethod::Reinhard => Box::new(ReinhardToneMapper::<CN>::default()),
         ToneMappingMethod::Clamp => Box::new(ClampToneMapper::<CN>::default()),
         ToneMappingMethod::Alu => Box::new(AluToneMapper::<CN>::default()),
+        ToneMappingMethod::FilmicSpline(params) => {
+            let spline = create_spline(params);
+            Box::new(SplineToneMapper::<CN> {
+                spline,
+                primaries: input_color_space.luma_primaries(),
+            })
+        }
     };
     tone_map
 }
@@ -281,20 +388,20 @@ macro_rules! define8 {
 
 returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
         pub fn $method(
-            content_hdr_metadata: GainHDRMetadata,
             hdr_transfer_function: HdrTransferFunction,
             input_color_space: GamutColorSpace,
             display_transfer_function: TransferFunction,
             output_color_space: GamutColorSpace,
             method: ToneMappingMethod,
+            gamut_clipping: GamutClipping,
         ) -> Box<SyncToneMapper8Bit> {
             create_tone_mapper_u8::<$cn>(
-                content_hdr_metadata,
                 hdr_transfer_function,
                 input_color_space,
                 display_transfer_function,
                 output_color_space,
                 method,
+                gamut_clipping,
             )
         }
     };
@@ -318,21 +425,21 @@ macro_rules! define16 {
 
 returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
         pub fn $method(
-            content_hdr_metadata: GainHDRMetadata,
             hdr_transfer_function: HdrTransferFunction,
             input_color_space: GamutColorSpace,
             display_transfer_function: TransferFunction,
             output_color_space: GamutColorSpace,
             method: ToneMappingMethod,
+            gamut_clipping: GamutClipping,
         ) -> Box<SyncToneMapper16Bit> {
             create_tone_mapper_u16::<$cn>(
                 $bp,
-                content_hdr_metadata,
                 hdr_transfer_function,
                 input_color_space,
                 display_transfer_function,
                 output_color_space,
                 method,
+                gamut_clipping,
             )
         }
     };
