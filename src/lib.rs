@@ -58,7 +58,7 @@ pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
     create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
     create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
-    create_tone_mapper_rgba16, GainHDRMetadata, GamutClipping, SyncToneMapper16Bit,
+    create_tone_mapper_rgba16, GainHdrMetadata, GamutClipping, SyncToneMapper16Bit,
     SyncToneMapper8Bit, ToneMapper,
 };
 

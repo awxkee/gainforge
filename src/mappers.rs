@@ -28,7 +28,7 @@
  */
 use crate::mlaf::mlaf;
 use crate::spline::FilmicSplineParameters;
-use crate::GainHDRMetadata;
+use crate::GainHdrMetadata;
 use std::ops::{Add, Div, Mul, Sub};
 
 /// Defines tone mapping method
@@ -36,7 +36,7 @@ use std::ops::{Add, Div, Mul, Sub};
 /// All tone mappers are local unless other is stated.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
-    Rec2408(GainHDRMetadata),
+    Rec2408(GainHdrMetadata),
     Filmic,
     Aces,
     Reinhard,
@@ -44,7 +44,6 @@ pub enum ToneMappingMethod {
     ReinhardJodie,
     Clamp,
     Alu,
-    /// It is scene global tone mapper. Use appropriate methods to apply it.
     FilmicSpline(FilmicSplineParameters),
 }
 

@@ -30,7 +30,7 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, BufferStore, FilmicSplineParameters, GainHDRMetadata, GainImage,
+    create_tone_mapper_rgb, BufferStore, FilmicSplineParameters, GainHdrMetadata, GainImage,
     GainImageMut, GamutClipping, GamutColorSpace, HdrTransferFunction, IsoGainMap, MpfInfo,
     ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
 };

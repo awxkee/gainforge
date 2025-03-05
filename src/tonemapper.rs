@@ -222,12 +222,12 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
-pub struct GainHDRMetadata {
+pub struct GainHdrMetadata {
     pub content_max_brightness: f32,
     pub display_max_brightness: f32,
 }
 
-impl Default for GainHDRMetadata {
+impl Default for GainHdrMetadata {
     fn default() -> Self {
         Self {
             content_max_brightness: 1000f32,
@@ -236,7 +236,7 @@ impl Default for GainHDRMetadata {
     }
 }
 
-impl GainHDRMetadata {
+impl GainHdrMetadata {
     pub fn new(content_max_brightness: f32, display_max_brightness: f32) -> Self {
         Self {
             content_max_brightness,

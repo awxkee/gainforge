@@ -16,7 +16,7 @@ Library helps perform tone mapping from HDR to SDR
         GamutColorSpace::Bt2020,
         TransferFunction::Srgb,
         GamutColorSpace::Srgb,
-        ToneMappingMethod::Rec2408(GainHDRMetadata::new(2000f32, 250f32)),
+        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
         GamutClipping::Clip,
     );
     let dims = rgb.dimensions();
