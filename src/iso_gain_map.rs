@@ -990,6 +990,7 @@ impl<const N: usize> GainLUT<N> {
     }
 }
 
+/// Computes gain map weight for given display boost
 pub fn make_gainmap_weight(gain_map: GainMap, display_boost: f32) -> f32 {
     let input_boost = display_boost.max(1f32);
     let gainmap_weight = (input_boost.log2() - gain_map.hdr_capacity_min.log2())
