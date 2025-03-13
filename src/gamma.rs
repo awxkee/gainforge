@@ -338,24 +338,24 @@ impl TransferFunction {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum HdrTransferFunction {
-    Pq,
-    Hlg,
+    PerceptualQuantizer,
+    HybridLogGamma,
 }
 
 impl HdrTransferFunction {
     #[inline(always)]
     pub fn linearize(&self, v: f32) -> f32 {
         match self {
-            HdrTransferFunction::Pq => pq_to_linear(v),
-            HdrTransferFunction::Hlg => hlg_to_linear(v),
+            HdrTransferFunction::PerceptualQuantizer => pq_to_linear(v),
+            HdrTransferFunction::HybridLogGamma => hlg_to_linear(v),
         }
     }
 
     #[inline(always)]
     pub fn gamma(&self, v: f32) -> f32 {
         match self {
-            HdrTransferFunction::Pq => pq_from_linear(v),
-            HdrTransferFunction::Hlg => hlg_from_linear(v),
+            HdrTransferFunction::PerceptualQuantizer => pq_from_linear(v),
+            HdrTransferFunction::HybridLogGamma => hlg_from_linear(v),
         }
     }
 

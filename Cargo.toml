@@ -17,10 +17,14 @@ exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png",
 rust-version = "1.82.0"
 
 [dependencies]
-num-traits = "0.2.19"
-moxcms = "0.3.0"
-quick-xml = { version =  "0.37.2", features = ["serde", "serde-types", "serialize"] }
-serde = { version = "1.0.218", features = ["derive"] }
+moxcms = "0.3"
+num-traits = "0.2"
+quick-xml = { version = "0.37", features = ["serde", "serde-types", "serialize"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = []
+uhdr = ["dep:serde", "dep:quick-xml"]
 
 [package.metadata.docs.rs]
 # To build locally:
