@@ -39,7 +39,7 @@ use std::ops::{Add, Div, Mul, Sub};
 /// many of the supported tone mapping methods.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
-    /// To do.
+    /// ITU-R broadcasting TV [recommendation 2408](https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BT.2408-4-2021-PDF-E.pdf)
     Rec2408(GainHdrMetadata),
     /// The ['Uncharted 2' filmic](https://www.gdcvault.com/play/1012351/Uncharted-2-HDR)
     /// tone mapping method.
