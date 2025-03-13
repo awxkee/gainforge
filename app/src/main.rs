@@ -170,7 +170,7 @@ fn main() {
     let rgb = img.to_rgb16();
 
     let tone_mapper = create_tone_mapper_rgb16(
-        HdrTransferFunction::Pq,
+        HdrTransferFunction::PerceptualQuantizer,
         GamutColorSpace::Bt2020,
         TransferFunction::Srgb,
         GamutColorSpace::Srgb,
