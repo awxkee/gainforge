@@ -375,18 +375,7 @@ fn make_mapper<const CN: usize>(
 
 macro_rules! define8 {
     ($method: ident, $cn: expr, $name: expr) => {
-        #[doc = concat!("Creates ", $name," tone mapper
-
-# Arguments
-
-* `content_hdr_metadata`: see [GainHDRMetadata]
-* `hdr_transfer_function`: see [HdrTransferFunction]
-* `input_color_space`: see [GamutColorSpace]
-* `display_transfer_function`: see [TransferFunction]
-* `output_color_space`: see [GamutColorSpace]
-* `method`: see [ToneMappingMethod]
-
-returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
+        #[doc = concat!("Creates an ", $name," tone mapper.")]
         pub fn $method(
             hdr_transfer_function: HdrTransferFunction,
             input_color_space: GamutColorSpace,
@@ -412,18 +401,7 @@ define8!(create_tone_mapper_rgba, 4, "RGBA8");
 
 macro_rules! define16 {
     ($method: ident, $cn: expr, $bp: expr, $name: expr) => {
-        #[doc = concat!("Creates ", $name," tone mapper
-
-# Arguments
-
-* `content_hdr_metadata`: see [GainHDRMetadata]
-* `hdr_transfer_function`: see [HdrTransferFunction]
-* `input_color_space`: see [GamutColorSpace]
-* `display_transfer_function`: see [TransferFunction]
-* `output_color_space`: see [GamutColorSpace]
-* `method`: see [ToneMappingMethod]
-
-returns: Box<dyn ToneMapper<u8> + Send+Sync, Global>")]
+        #[doc = concat!("Creates an ", $name," tone mapper.")]
         pub fn $method(
             hdr_transfer_function: HdrTransferFunction,
             input_color_space: GamutColorSpace,

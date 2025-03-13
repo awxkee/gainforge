@@ -31,19 +31,37 @@ use crate::spline::FilmicSplineParameters;
 use crate::GainHdrMetadata;
 use std::ops::{Add, Div, Mul, Sub};
 
-/// Defines tone mapping method
+/// Defines a tone mapping method.
 ///
 /// All tone mappers are local unless other is stated.
+///
+/// See [this blog post](https://64.github.io/tonemapping/) for more details on
+/// many of the supported tone mapping methods.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
+    /// To do.
     Rec2408(GainHdrMetadata),
+    /// The ['Uncharted 2' filmic](https://www.gdcvault.com/play/1012351/Uncharted-2-HDR)
+    /// tone mapping method.
     Filmic,
+    /// The [Academy Color Encoding System](https://github.com/ampas/aces-core)
+    /// filmic tone mapping method.
     Aces,
+    /// Erik Reinhard's tone mapper from the paper "Photographic tone
+    /// reproduction for digital images".
     Reinhard,
+    /// Same as `Reinhard` but but scales the output to the full dynamic
+    /// range of the image.
     ExtendedReinhard,
+    /// A variation of `Reinhard` that uses mixes color-based- with
+    /// luminance-based tone mapping.
     ReinhardJodie,
+    /// Simply clamp the output to the available dynamic range.
     Clamp,
+    /// To do.
     Alu,
+    /// This is a parameterized curve based on the Blender Filmic tone mapping
+    /// method similar to the module found in Ansel/Darktable.
     FilmicSpline(FilmicSplineParameters),
 }
 
