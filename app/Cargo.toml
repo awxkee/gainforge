@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 image = { version = "0.25.5", features = ["avif-native"] }
-gainforge = { path = "../" }
+gainforge = { path = "../", features = ["uhdr"] }
 turbojpeg = "1.2.2"
 num-traits = "0.2.19"
-moxcms = "0.3.0"
+moxcms = {path = "../../../RustroverProjects/moxcms"}
 zune-jpeg = { git = "https://github.com/etemesi254/zune-image" }
 pic-scale = "0.5.3"

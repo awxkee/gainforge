@@ -2,7 +2,7 @@ workspace = { members = ["app"] }
 
 [package]
 name = "gainforge"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "HDR tonemapping library"
 readme = "README.md"
@@ -17,7 +17,7 @@ exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png",
 rust-version = "1.82.0"
 
 [dependencies]
-moxcms = "0.3"
+moxcms = {path = "../../RustroverProjects/moxcms"}
 num-traits = "0.2"
 quick-xml = { version = "0.37", features = ["serde", "serde-types", "serialize"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }

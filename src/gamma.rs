@@ -28,6 +28,8 @@
  */
 #![allow(clippy::excessive_precision)]
 
+use moxcms::TransferCharacteristics;
+
 #[inline(always)]
 /// Linear transfer function for sRGB
 pub(crate) fn srgb_to_linear(gamma: f32) -> f32 {
@@ -262,6 +264,8 @@ pub enum TransferFunction {
     Bt1361,
     /// Linear transfer function
     Linear,
+    HybridLogGamma,
+    PerceptualQuantizer,
 }
 
 impl From<u8> for TransferFunction {
@@ -290,6 +294,8 @@ impl TransferFunction {
             TransferFunction::Smpte428 => smpte428_to_linear(v),
             TransferFunction::Bt1361 => bt1361_to_linear(v),
             TransferFunction::Linear => trc_linear(v),
+            TransferFunction::HybridLogGamma => hlg_to_linear(v),
+            TransferFunction::PerceptualQuantizer => pq_to_linear(v),
         }
     }
 
@@ -303,19 +309,21 @@ impl TransferFunction {
             TransferFunction::Smpte428 => smpte428_from_linear(v),
             TransferFunction::Bt1361 => bt1361_from_linear(v),
             TransferFunction::Linear => trc_linear(v),
+            TransferFunction::PerceptualQuantizer => pq_from_linear(v),
+            TransferFunction::HybridLogGamma => hlg_from_linear(v),
         }
     }
 
-    pub(crate) fn generate_gamma_table_u8(&self) -> Box<[u8; 65636]> {
-        let mut table = Box::new([0; 65636]);
+    pub(crate) fn generate_gamma_table_u8(&self) -> Box<[u8; 65536]> {
+        let mut table = Box::new([0; 65536]);
         for (i, value) in table.iter_mut().take(8192).enumerate() {
             *value = (self.gamma(i as f32 / 8192.) * 255.).round() as u8;
         }
         table
     }
 
-    pub(crate) fn generate_gamma_table_u16(&self, bit_depth: usize) -> Box<[u16; 65636]> {
-        let mut table = Box::new([0; 65636]);
+    pub(crate) fn generate_gamma_table_u16(&self, bit_depth: usize) -> Box<[u16; 65536]> {
+        let mut table = Box::new([0; 65536]);
         let bit_depth: f32 = ((1 << bit_depth as u32) - 1) as f32;
         for (i, value) in table.iter_mut().enumerate() {
             *value = (self.gamma(i as f32 / 65535.) * bit_depth).round() as u16;
@@ -323,7 +331,6 @@ impl TransferFunction {
         table
     }
 
-    #[allow(dead_code)]
     pub(crate) fn generate_linear_table_u16(&self, bit_depth: usize) -> Box<[f32; 65536]> {
         let mut table = Box::new([0.; 65536]);
         let max_bp = (1 << bit_depth as u32) - 1;
@@ -332,31 +339,6 @@ impl TransferFunction {
             *value = self.linearize(i as f32 * max_scale);
         }
         table
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub enum HdrTransferFunction {
-    PerceptualQuantizer,
-    HybridLogGamma,
-}
-
-impl HdrTransferFunction {
-    #[inline(always)]
-    pub fn linearize(&self, v: f32) -> f32 {
-        match self {
-            HdrTransferFunction::PerceptualQuantizer => pq_to_linear(v),
-            HdrTransferFunction::HybridLogGamma => hlg_to_linear(v),
-        }
-    }
-
-    #[inline(always)]
-    pub fn gamma(&self, v: f32) -> f32 {
-        match self {
-            HdrTransferFunction::PerceptualQuantizer => pq_from_linear(v),
-            HdrTransferFunction::HybridLogGamma => hlg_from_linear(v),
-        }
     }
 
     pub(crate) fn generate_linear_table_u8(&self) -> Box<[f32; 256]> {
@@ -366,14 +348,27 @@ impl HdrTransferFunction {
         }
         table
     }
+}
 
-    pub(crate) fn generate_linear_table_u16(&self, bit_depth: usize) -> Box<[f32; 65536]> {
-        let mut table = Box::new([0.; 65536]);
-        let max_bp = (1 << bit_depth as u32) - 1;
-        let max_scale = 1f32 / max_bp as f32;
-        for (i, value) in table.iter_mut().take(max_bp).enumerate() {
-            *value = self.linearize(i as f32 * max_scale);
-        }
-        table
+pub(crate) fn trc_from_cicp(trc: TransferCharacteristics) -> Option<TransferFunction> {
+    match trc {
+        TransferCharacteristics::Reserved => None,
+        TransferCharacteristics::Bt709 => Some(TransferFunction::Rec709),
+        TransferCharacteristics::Unspecified => None,
+        TransferCharacteristics::Bt470M => Some(TransferFunction::Gamma2p2),
+        TransferCharacteristics::Bt470Bg => Some(TransferFunction::Gamma2p8),
+        TransferCharacteristics::Bt601 => Some(TransferFunction::Rec709),
+        TransferCharacteristics::Smpte240 => None,
+        TransferCharacteristics::Linear => Some(TransferFunction::Linear),
+        TransferCharacteristics::Log100 => None,
+        TransferCharacteristics::Log100sqrt10 => None,
+        TransferCharacteristics::Iec61966 => None,
+        TransferCharacteristics::Bt1361 => Some(TransferFunction::Bt1361),
+        TransferCharacteristics::Srgb => Some(TransferFunction::Srgb),
+        TransferCharacteristics::Bt202010bit => Some(TransferFunction::Srgb),
+        TransferCharacteristics::Bt202012bit => Some(TransferFunction::Srgb),
+        TransferCharacteristics::Smpte2084 => Some(TransferFunction::PerceptualQuantizer),
+        TransferCharacteristics::Smpte428 => Some(TransferFunction::Smpte428),
+        TransferCharacteristics::Hlg => Some(TransferFunction::HybridLogGamma),
     }
 }
