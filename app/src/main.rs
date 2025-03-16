@@ -181,9 +181,10 @@ fn main() {
         // }),
         // ToneMappingMethod::Reinhard,
         // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
-        ToneMappingMethod::ExtendedReinhard,
-        MappingColorSpace::Oklab,
-    ).unwrap();
+        ToneMappingMethod::Filmic,
+        MappingColorSpace::Jzazbz(3000f32),
+    )
+    .unwrap();
     let dims = rgb.dimensions();
     let mut dst = vec![0u8; rgb.len()];
     let work_time = Instant::now();
