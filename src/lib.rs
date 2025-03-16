@@ -229,7 +229,6 @@
 #![allow(clippy::manual_clamp, clippy::excessive_precision)]
 #[cfg(feature = "uhdr")]
 mod apply_gain_map;
-mod cms;
 mod err;
 mod gain_image;
 mod gamma;
@@ -245,7 +244,6 @@ pub use apply_gain_map::{
     apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
     apply_gain_map_rgba, apply_gain_map_rgba10, apply_gain_map_rgba12, apply_gain_map_rgba16,
 };
-pub use cms::GamutColorSpace;
 pub use err::ForgeError;
 pub use gain_image::{BufferStore, GainImage, GainImageMut};
 pub use gamma::TransferFunction;

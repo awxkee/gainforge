@@ -64,6 +64,8 @@ pub enum MappingColorSpace {
     ///   occasionally hue changes can be objectionable.
     Rgb(GamutClipping),
     /// Yrg filmic colorspace.
+    /// 
+    /// Slightly better results as in linear RGB, for a little computational cost.
     ///
     /// Some description what to expect:
     /// - Has the potential to produce colours outside the destination gamut, which then require gamut
@@ -77,6 +79,8 @@ pub enum MappingColorSpace {
     /// Algorithm here do not perform gamut mapping.
     YRgb,
     /// Oklab perceptual colorspace.
+    /// 
+    /// *Oklab is not really were created for HDR*.
     ///
     /// Some description of what to expect:
     /// - Provides perceptually uniform lightness adjustments.
@@ -87,10 +91,12 @@ pub enum MappingColorSpace {
     ///
     /// Some description of what to expect:
     /// - Designed for HDR workflows, explicitly modeling display-referred luminance.
+    /// - Thus, as at the first point often produces the best results.
     /// - Provides better perceptual uniformity than Oklab, particularly in high dynamic range content.
     /// - Preserves hue well, but chroma adjustments may be necessary when mapping between displays with different peak brightness.
     /// - Can help avoid color distortions and oversaturation when adapting HDR content to lower-luminance displays.
     ///
+    /// This is very slow computational method.
     /// Content brightness should be specified.
     Jzazbz(f32),
 }
