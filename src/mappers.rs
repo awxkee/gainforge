@@ -50,7 +50,7 @@ pub enum ToneMappingMethod {
     /// Erik Reinhard's tone mapper from the paper "Photographic tone
     /// reproduction for digital images".
     Reinhard,
-    /// Same as `Reinhard` but but scales the output to the full dynamic
+    /// Same as `Reinhard` but scales the output to the full dynamic
     /// range of the image.
     ExtendedReinhard,
     /// A variation of `Reinhard` that uses mixes color-based- with
@@ -187,7 +187,7 @@ pub(crate) struct Rgb {
 
 impl Mul<Rgb> for Rgb {
     type Output = Self;
-
+    #[inline(always)]
     fn mul(self, rhs: Rgb) -> Self::Output {
         Self {
             r: self.r * rhs.r,
@@ -199,7 +199,7 @@ impl Mul<Rgb> for Rgb {
 
 impl Add<f32> for Rgb {
     type Output = Self;
-
+    #[inline(always)]
     fn add(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r + rhs,
@@ -211,6 +211,7 @@ impl Add<f32> for Rgb {
 
 impl Sub<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn sub(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r - rhs,
@@ -222,6 +223,7 @@ impl Sub<f32> for Rgb {
 
 impl Mul<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r * rhs,
@@ -233,6 +235,7 @@ impl Mul<f32> for Rgb {
 
 impl Div<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn div(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r / rhs,
@@ -244,6 +247,7 @@ impl Div<f32> for Rgb {
 
 impl Div<Rgb> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn div(self, rhs: Rgb) -> Self::Output {
         Self {
             r: self.r / rhs.r,

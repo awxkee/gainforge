@@ -42,7 +42,9 @@
 //!         content_max_brightness: 2000f32,
 //!         display_max_brightness: 250f32,
 //!     }),
-//!     MappingColorSpace::YRgb,
+//!     MappingColorSpace::YRgb(CommonToneMapperParameters {
+//!         exposure: 1.0f32
+// !    }),
 //! )?;
 //!
 //! let dims = rgb.dimensions();
@@ -260,8 +262,9 @@ pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
     create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
     create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
-    create_tone_mapper_rgba16, GainHdrMetadata, GamutClipping, MappingColorSpace,
-    SyncToneMapper16Bit, SyncToneMapper8Bit, ToneMapper,
+    create_tone_mapper_rgba16, CommonToneMapperParameters, GainHdrMetadata, GamutClipping,
+    JzazbzToneMapperParameters, MappingColorSpace, RgbToneMapperParameters, SyncToneMapper16Bit,
+    SyncToneMapper8Bit, ToneMapper,
 };
 
 #[inline]

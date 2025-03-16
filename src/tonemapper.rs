@@ -62,9 +62,9 @@ pub enum MappingColorSpace {
     ///   night
     /// - Depending on the amount of compression, the saturation decrease may be excessive, and
     ///   occasionally hue changes can be objectionable.
-    Rgb(GamutClipping),
+    Rgb(RgbToneMapperParameters),
     /// Yrg filmic colorspace.
-    /// 
+    ///
     /// Slightly better results as in linear RGB, for a little computational cost.
     ///
     /// Some description what to expect:
@@ -77,16 +77,18 @@ pub enum MappingColorSpace {
     ///   lightness colour spaces (requiring a colour space change).
     ///
     /// Algorithm here do not perform gamut mapping.
-    YRgb,
+    YRgb(CommonToneMapperParameters),
     /// Oklab perceptual colorspace.
-    /// 
+    ///
+    /// It exists more for *experiments* how does it look like.
+    /// Results are often strange and might not be acceptable.
     /// *Oklab is not really were created for HDR*.
     ///
     /// Some description of what to expect:
     /// - Provides perceptually uniform lightness adjustments.
     /// - Preserves hue better than RGB but can lead to color shifts due to applying aggressive compression.
     /// - Suitable for applications where perceptual lightness control is more important than strict colorimetric accuracy.
-    Oklab,
+    Oklab(CommonToneMapperParameters),
     /// JzAzBz perceptual HDR colorspace.
     ///
     /// Some description of what to expect:
@@ -98,7 +100,48 @@ pub enum MappingColorSpace {
     ///
     /// This is very slow computational method.
     /// Content brightness should be specified.
-    Jzazbz(f32),
+    Jzazbz(JzazbzToneMapperParameters),
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct JzazbzToneMapperParameters {
+    pub content_brightness: f32,
+    pub exposure: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct CommonToneMapperParameters {
+    pub exposure: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct RgbToneMapperParameters {
+    pub exposure: f32,
+    pub gamut_clipping: GamutClipping,
+}
+
+impl Default for JzazbzToneMapperParameters {
+    fn default() -> Self {
+        Self {
+            content_brightness: 1000f32,
+            exposure: 1.0f32,
+        }
+    }
+}
+
+impl Default for CommonToneMapperParameters {
+    fn default() -> Self {
+        Self { exposure: 1.0f32 }
+    }
+}
+
+impl Default for RgbToneMapperParameters {
+    fn default() -> Self {
+        Self {
+            exposure: 1.0f32,
+            gamut_clipping: GamutClipping::default(),
+        }
+    }
 }
 
 pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
@@ -188,6 +231,7 @@ pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const
     pub(crate) gamma_map_b: Box<[T; 65536]>,
     pub(crate) im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
     tone_map: Box<SyncToneMap>,
+    params: RgbToneMapperParameters,
 }
 
 pub(crate) struct ToneMapperImplYrg<
@@ -205,6 +249,7 @@ pub(crate) struct ToneMapperImplYrg<
     pub(crate) to_xyz: Matrix3f,
     pub(crate) to_rgb: Matrix3f,
     tone_map: Box<SyncToneMap>,
+    parameters: CommonToneMapperParameters,
 }
 
 pub(crate) struct ToneMapperImplOklab<
@@ -220,6 +265,7 @@ pub(crate) struct ToneMapperImplOklab<
     pub(crate) gamma_map_g: Box<[T; 65536]>,
     pub(crate) gamma_map_b: Box<[T; 65536]>,
     tone_map: Box<SyncToneMap>,
+    parameters: CommonToneMapperParameters,
 }
 
 pub(crate) struct ToneMapperImplJzazbz<
@@ -237,7 +283,7 @@ pub(crate) struct ToneMapperImplJzazbz<
     pub(crate) to_xyz: Matrix3f,
     pub(crate) to_rgb: Matrix3f,
     tone_map: Box<SyncToneMap>,
-    content_brightness: f32,
+    parameters: JzazbzToneMapperParameters,
 }
 
 pub trait ToneMapper<T: Copy + Default + Debug> {
@@ -276,9 +322,9 @@ where
             .chunks_exact(CN)
             .zip(linearized_content.chunks_exact_mut(CN))
         {
-            dst[0] = self.linear_map_r[src[0].as_()];
-            dst[1] = self.linear_map_g[src[1].as_()];
-            dst[2] = self.linear_map_b[src[2].as_()];
+            dst[0] = self.linear_map_r[src[0].as_()] * self.params.exposure;
+            dst[1] = self.linear_map_g[src[1].as_()] * self.params.exposure;
+            dst[2] = self.linear_map_b[src[2].as_()] * self.params.exposure;
             if CN == 4 {
                 dst[3] = f32::from_bits(src[3].as_() as u32);
             }
@@ -351,12 +397,12 @@ where
             .chunks_exact(CN)
             .zip(linearized_content.chunks_exact_mut(CN))
         {
-            let xyz = Rgb::new(
+            let xyz = (Rgb::new(
                 self.linear_map_r[src[0].as_()],
                 self.linear_map_g[src[1].as_()],
                 self.linear_map_b[src[2].as_()],
-            )
-            .to_xyz(self.to_xyz);
+            ) * self.parameters.exposure)
+                .to_xyz(self.to_xyz);
             let yrg = Yrg::from_xyz(xyz);
             dst[0] = yrg.y;
             dst[1] = yrg.r;
@@ -434,7 +480,7 @@ where
                 self.linear_map_r[src[0].as_()],
                 self.linear_map_g[src[1].as_()],
                 self.linear_map_b[src[2].as_()],
-            );
+            ) * self.parameters.exposure;
             let yrg = Oklab::from_linear_rgb(xyz);
             dst[0] = yrg.l;
             dst[1] = yrg.a;
@@ -510,17 +556,19 @@ where
         }
         assert_eq!(src.len(), dst.len());
         let mut linearized_content = vec![0f32; src.len()];
+
         for (src, dst) in src
             .chunks_exact(CN)
             .zip(linearized_content.chunks_exact_mut(CN))
         {
-            let xyz = Rgb::new(
+            let xyz = (Rgb::new(
                 self.linear_map_r[src[0].as_()],
                 self.linear_map_g[src[1].as_()],
                 self.linear_map_b[src[2].as_()],
-            )
-            .to_xyz(self.to_xyz);
-            let jab = Jzazbz::from_xyz_with_display_luminance(xyz, self.content_brightness);
+            ) * self.parameters.exposure)
+                .to_xyz(self.to_xyz);
+            let jab =
+                Jzazbz::from_xyz_with_display_luminance(xyz, self.parameters.content_brightness);
             dst[0] = jab.jz;
             dst[1] = jab.az;
             dst[2] = jab.bz;
@@ -533,7 +581,7 @@ where
 
         for dst in linearized_content.chunks_exact_mut(CN) {
             let jab = Jzazbz::new(dst[0], dst[1], dst[2]);
-            let xyz = jab.to_xyz(self.content_brightness);
+            let xyz = jab.to_xyz(self.parameters.content_brightness);
             let rgb = xyz.to_linear_rgb(self.to_rgb);
             dst[0] = m_clamp(rgb.r, 0.0, 1.0);
             dst[1] = m_clamp(rgb.g, 0.0, 1.0);
@@ -652,9 +700,9 @@ fn create_tone_mapper_u8<const CN: usize>(
     let tone_map = make_mapper::<CN>(input_color_space, method);
 
     match working_color_space {
-        MappingColorSpace::Rgb(gamut_clipping) => {
+        MappingColorSpace::Rgb(params) => {
             let im_stage: Box<dyn InPlaceStage + Send + Sync> =
-                if gamut_clipping == GamutClipping::Clip {
+                if params.gamut_clipping == GamutClipping::Clip {
                     Box::new(MatrixGamutClipping::<CN> {
                         gamut_color_conversion: conversion,
                     })
@@ -672,9 +720,10 @@ fn create_tone_mapper_u8<const CN: usize>(
                 gamma_map_g: gamma_table_b,
                 im_stage: Some(im_stage),
                 tone_map,
+                params,
             }))
         }
-        MappingColorSpace::YRgb => Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
+        MappingColorSpace::YRgb(params) => Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
             linear_map_r: linear_table_r,
             linear_map_g: linear_table_g,
             linear_map_b: linear_table_b,
@@ -689,16 +738,20 @@ fn create_tone_mapper_u8<const CN: usize>(
                 .and_then(|x| x.inverse())
                 .unwrap_or(Matrix3f::IDENTITY),
             tone_map,
+            parameters: params,
         })),
-        MappingColorSpace::Oklab => Ok(Box::new(ToneMapperImplOklab::<u8, 256, CN, 8192> {
-            linear_map_r: linear_table_r,
-            linear_map_g: linear_table_g,
-            linear_map_b: linear_table_b,
-            gamma_map_r: gamma_table_r,
-            gamma_map_b: gamma_table_g,
-            gamma_map_g: gamma_table_b,
-            tone_map,
-        })),
+        MappingColorSpace::Oklab(params) => {
+            Ok(Box::new(ToneMapperImplOklab::<u8, 256, CN, 8192> {
+                linear_map_r: linear_table_r,
+                linear_map_g: linear_table_g,
+                linear_map_b: linear_table_b,
+                gamma_map_r: gamma_table_r,
+                gamma_map_b: gamma_table_g,
+                gamma_map_g: gamma_table_b,
+                tone_map,
+                parameters: params,
+            }))
+        }
         MappingColorSpace::Jzazbz(brightness) => {
             Ok(Box::new(ToneMapperImplJzazbz::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
@@ -715,7 +768,7 @@ fn create_tone_mapper_u8<const CN: usize>(
                     .and_then(|x| x.inverse())
                     .unwrap_or(Matrix3f::IDENTITY),
                 tone_map,
-                content_brightness: brightness,
+                parameters: brightness,
             }))
         }
     }
@@ -771,9 +824,9 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
     let tone_map = make_mapper::<CN>(input_color_space, method);
 
     match working_color_space {
-        MappingColorSpace::Rgb(gamut_clipping) => {
+        MappingColorSpace::Rgb(params) => {
             let im_stage: Box<dyn InPlaceStage + Send + Sync> =
-                if gamut_clipping == GamutClipping::Clip {
+                if params.gamut_clipping == GamutClipping::Clip {
                     Box::new(MatrixGamutClipping::<CN> {
                         gamut_color_conversion: conversion,
                     })
@@ -791,33 +844,40 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                 gamma_map_g: gamma_table_b,
                 im_stage: Some(im_stage),
                 tone_map,
+                params,
             }))
         }
-        MappingColorSpace::YRgb => Ok(Box::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
-            linear_map_r: linear_table_r,
-            linear_map_g: linear_table_g,
-            linear_map_b: linear_table_b,
-            gamma_map_r: gamma_table_r,
-            gamma_map_b: gamma_table_g,
-            gamma_map_g: gamma_table_b,
-            to_xyz: input_color_space
-                .rgb_to_xyz_matrix()
-                .unwrap_or(Matrix3f::IDENTITY),
-            to_rgb: output_color_space
-                .rgb_to_xyz_matrix()
-                .and_then(|x| x.inverse())
-                .unwrap_or(Matrix3f::IDENTITY),
-            tone_map,
-        })),
-        MappingColorSpace::Oklab => Ok(Box::new(ToneMapperImplOklab::<u16, 65536, CN, 65536> {
-            linear_map_r: linear_table_r,
-            linear_map_g: linear_table_g,
-            linear_map_b: linear_table_b,
-            gamma_map_r: gamma_table_r,
-            gamma_map_b: gamma_table_g,
-            gamma_map_g: gamma_table_b,
-            tone_map,
-        })),
+        MappingColorSpace::YRgb(params) => {
+            Ok(Box::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
+                linear_map_r: linear_table_r,
+                linear_map_g: linear_table_g,
+                linear_map_b: linear_table_b,
+                gamma_map_r: gamma_table_r,
+                gamma_map_b: gamma_table_g,
+                gamma_map_g: gamma_table_b,
+                to_xyz: input_color_space
+                    .rgb_to_xyz_matrix()
+                    .unwrap_or(Matrix3f::IDENTITY),
+                to_rgb: output_color_space
+                    .rgb_to_xyz_matrix()
+                    .and_then(|x| x.inverse())
+                    .unwrap_or(Matrix3f::IDENTITY),
+                tone_map,
+                parameters: params,
+            }))
+        }
+        MappingColorSpace::Oklab(params) => {
+            Ok(Box::new(ToneMapperImplOklab::<u16, 65536, CN, 65536> {
+                linear_map_r: linear_table_r,
+                linear_map_g: linear_table_g,
+                linear_map_b: linear_table_b,
+                gamma_map_r: gamma_table_r,
+                gamma_map_b: gamma_table_g,
+                gamma_map_g: gamma_table_b,
+                tone_map,
+                parameters: params,
+            }))
+        }
         MappingColorSpace::Jzazbz(brightness) => {
             Ok(Box::new(ToneMapperImplJzazbz::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
@@ -834,7 +894,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                     .and_then(|x| x.inverse())
                     .unwrap_or(Matrix3f::IDENTITY),
                 tone_map,
-                content_brightness: brightness,
+                parameters: brightness,
             }))
         }
     }

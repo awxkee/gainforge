@@ -30,9 +30,10 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, create_tone_mapper_rgb16, BufferStore, FilmicSplineParameters,
-    GainHdrMetadata, GainImage, GainImageMut, GamutClipping, IsoGainMap,
-    MappingColorSpace, MpfInfo, ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+    create_tone_mapper_rgb, create_tone_mapper_rgb16, BufferStore, CommonToneMapperParameters,
+    FilmicSplineParameters, GainHdrMetadata, GainImage, GainImageMut, GamutClipping, IsoGainMap,
+    JzazbzToneMapperParameters, MappingColorSpace, MpfInfo, RgbToneMapperParameters,
+    ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
 };
 use moxcms::ColorProfile;
 use std::fs::File;
@@ -181,9 +182,14 @@ fn main() {
         // }),
         // ToneMappingMethod::Reinhard,
         // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
-        ToneMappingMethod::Aces,
-        // MappingColorSpace::YRgb,
-        MappingColorSpace::Jzazbz(2000f32),
+        ToneMappingMethod::Filmic,
+        MappingColorSpace::YRgb(CommonToneMapperParameters {
+            exposure: 1.0f32
+        }),
+        // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
+        //     content_brightness: 2000f32,
+        //     exposure: 1f32,
+        // }),
     )
     .unwrap();
     let dims = rgb.dimensions();
@@ -230,7 +236,7 @@ fn main() {
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
-        "clamp_compress_yrgb.jpg",
+        "clamp_compress.jpg",
         &dst,
         img.width(),
         img.height(),

@@ -18,7 +18,9 @@ let tone_mapper = create_tone_mapper_rgb(
         content_max_brightness: 2000f32,
         display_max_brightness: 250f32,
     }),
-    MappingColorSpace::YRgb,
+    MappingColorSpace::YRgb(CommonToneMapperParameters {
+        exposure: 1.0f32
+    }),
 )?;
 
 let dims = rgb.dimensions();
