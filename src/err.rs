@@ -41,7 +41,7 @@ pub enum ForgeError {
     LaneSizeMismatch,
     LaneMultipleOfChannels,
     InvalidIcc,
-    InvalicTrcCurve,
+    InvalidTrcCurve,
     InvalidCicp,
     CurveLutIsTooLarge,
     ParametricCurveZeroDivision,
@@ -66,7 +66,7 @@ impl Display for ForgeError {
             }
             ForgeError::InvalidIcc => f.write_str("Invalid ICC profile"),
             ForgeError::InvalidCicp => f.write_str("Invalid CICP in ICC profile"),
-            ForgeError::InvalicTrcCurve => f.write_str("Invalid TRC curve"),
+            ForgeError::InvalidTrcCurve => f.write_str("Invalid TRC curve"),
             ForgeError::CurveLutIsTooLarge => f.write_str("Curve Lut is too large"),
             ForgeError::ParametricCurveZeroDivision => {
                 f.write_str("Parametric Curve definition causes division by zero")

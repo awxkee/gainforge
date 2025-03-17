@@ -50,7 +50,7 @@ pub enum ToneMappingMethod {
     /// Erik Reinhard's tone mapper from the paper "Photographic tone
     /// reproduction for digital images".
     Reinhard,
-    /// Same as `Reinhard` but but scales the output to the full dynamic
+    /// Same as `Reinhard` but scales the output to the full dynamic
     /// range of the image.
     ExtendedReinhard,
     /// A variation of `Reinhard` that uses mixes color-based- with
@@ -58,8 +58,6 @@ pub enum ToneMappingMethod {
     ReinhardJodie,
     /// Simply clamp the output to the available dynamic range.
     Clamp,
-    /// To do.
-    Alu,
     /// This is a parameterized curve based on the Blender Filmic tone mapping
     /// method similar to the module found in Ansel/Darktable.
     FilmicSpline(FilmicSplineParameters),
@@ -67,6 +65,8 @@ pub enum ToneMappingMethod {
 
 pub(crate) trait ToneMap {
     fn process_lane(&self, in_place: &mut [f32]);
+    /// This method always expect first item to be luma.
+    fn process_luma_lane(&self, in_place: &mut [f32]);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -119,6 +119,18 @@ impl<const CN: usize> ToneMap for Rec2408ToneMapper<CN> {
             chunk[2] = (chunk[2] * scale).min(1f32);
         }
     }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let luma = chunk[0];
+            if luma == 0. {
+                chunk[0] = 0.;
+                continue;
+            }
+            let scale = self.tonemap(luma);
+            chunk[0] = (chunk[0] * scale).min(1f32);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -155,6 +167,12 @@ impl<const CN: usize> ToneMap for FilmicToneMapper<CN> {
             chunk[2] = self.uncharted2_filmic(chunk[2]).min(1f32);
         }
     }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            chunk[0] = self.uncharted2_filmic(chunk[0]).min(1f32);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -169,7 +187,7 @@ pub(crate) struct Rgb {
 
 impl Mul<Rgb> for Rgb {
     type Output = Self;
-
+    #[inline(always)]
     fn mul(self, rhs: Rgb) -> Self::Output {
         Self {
             r: self.r * rhs.r,
@@ -181,7 +199,7 @@ impl Mul<Rgb> for Rgb {
 
 impl Add<f32> for Rgb {
     type Output = Self;
-
+    #[inline(always)]
     fn add(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r + rhs,
@@ -193,6 +211,7 @@ impl Add<f32> for Rgb {
 
 impl Sub<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn sub(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r - rhs,
@@ -204,6 +223,7 @@ impl Sub<f32> for Rgb {
 
 impl Mul<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r * rhs,
@@ -215,6 +235,7 @@ impl Mul<f32> for Rgb {
 
 impl Div<f32> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn div(self, rhs: f32) -> Self::Output {
         Self {
             r: self.r / rhs,
@@ -226,6 +247,7 @@ impl Div<f32> for Rgb {
 
 impl Div<Rgb> for Rgb {
     type Output = Self;
+    #[inline(always)]
     fn div(self, rhs: Rgb) -> Self::Output {
         Self {
             r: self.r / rhs.r,
@@ -293,6 +315,20 @@ impl<const CN: usize> ToneMap for AcesToneMapper<CN> {
             chunk[2] = c_out.b.min(1f32);
         }
     }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let color_in = self.mul_input(Rgb {
+                r: chunk[0],
+                g: chunk[1],
+                b: chunk[2],
+            });
+            let ca = color_in * (color_in + 0.0245786f32) - 0.000090537f32;
+            let cb = color_in * (color_in * 0.983729f32 + 0.4329510f32) + 0.238081f32;
+            let c_out = self.mul_output(ca / cb);
+            chunk[0] = c_out.r.min(1f32);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -304,6 +340,12 @@ impl<const CN: usize> ToneMap for ReinhardToneMapper<CN> {
             chunk[0] = (chunk[0] / (1f32 + chunk[0])).min(1f32);
             chunk[1] = (chunk[1] / (1f32 + chunk[1])).min(1f32);
             chunk[2] = (chunk[2] / (1f32 + chunk[2])).min(1f32);
+        }
+    }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            chunk[0] = (chunk[0] / (1f32 + chunk[0])).min(1f32);
         }
     }
 }
@@ -329,6 +371,18 @@ impl<const CN: usize> ToneMap for ExtendedReinhardToneMapper<CN> {
             chunk[0] = (chunk[0] * new_luma).min(1f32);
             chunk[1] = (chunk[1] * new_luma).min(1f32);
             chunk[2] = (chunk[2] * new_luma).min(1f32);
+        }
+    }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let luma = chunk[0];
+            if luma == 0. {
+                chunk[0] = 0.;
+                continue;
+            }
+            let new_luma = luma / (1f32 + luma);
+            chunk[0] = (chunk[0] * new_luma).min(1f32);
         }
     }
 }
@@ -364,6 +418,19 @@ impl<const CN: usize> ToneMap for ReinhardJodieToneMapper<CN> {
             chunk[2] = lerp(chunk[1] / (1f32 + luma), tv_b, tv_b).min(1f32);
         }
     }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let luma = chunk[0];
+            if luma == 0. {
+                chunk[0] = 0.;
+                continue;
+            }
+            let tv_r = chunk[0] / (1.0f32 + chunk[0]);
+
+            chunk[0] = lerp(chunk[0] / (1f32 + luma), tv_r, tv_r).min(1f32);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -377,25 +444,10 @@ impl<const CN: usize> ToneMap for ClampToneMapper<CN> {
             chunk[2] = chunk[2].min(1f32).max(0f32);
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct AluToneMapper<const CN: usize> {}
-
-impl<const CN: usize> AluToneMapper<CN> {
-    #[inline(always)]
-    fn alu(&self, v: f32) -> f32 {
-        let c = (v - 0.004).max(0f32);
-        (c * (c * 6.2 + 0.5)) / (c * (c * 6.2 + 1.7) + 0.06)
-    }
-}
-
-impl<const CN: usize> ToneMap for AluToneMapper<CN> {
-    fn process_lane(&self, in_place: &mut [f32]) {
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
-            chunk[0] = self.alu(chunk[0]).min(1f32);
-            chunk[1] = self.alu(chunk[1]).min(1f32);
-            chunk[2] = self.alu(chunk[2]).min(1f32);
+            chunk[0] = chunk[0].min(1f32).max(0f32);
         }
     }
 }

@@ -159,6 +159,35 @@ impl<const CN: usize> ToneMap for SplineToneMapper<CN> {
             chunk[2] = ratios.b.min(1f32).max(0f32);
         }
     }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
+            let mut norm = rgb.r.max(1.52587890625e-05f32);
+            let mut ratios = rgb / norm;
+            let min_ratio = ratios.r;
+            if min_ratio < 0f32 {
+                ratios = ratios - min_ratio;
+            }
+
+            norm = self.shaper(norm);
+
+            let desat = self.desaturate(
+                norm,
+                self.spline.sigma_toe,
+                self.spline.sigma_shoulder,
+                self.spline.saturation,
+            );
+
+            let mapped = self.spline.apply(norm).min(1f32).max(0f32);
+
+            ratios.r = ratios.r + (1.0f32 - ratios.r) * (1.0f32 - desat);
+
+            ratios *= mapped;
+
+            chunk[0] = ratios.r.min(1f32).max(0f32);
+        }
+    }
 }
 
 #[inline]

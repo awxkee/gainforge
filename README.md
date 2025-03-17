@@ -12,16 +12,16 @@ let img = image::ImageReader::open("./assets/hdr.avif")?
 let rgb = img.to_rgb8();
 
 let tone_mapper = create_tone_mapper_rgb(
-    HdrTransferFunction::PerceptualQuantizer,
-    GamutColorSpace::Bt2020,
-    TransferFunction::Srgb,
-    GamutColorSpace::Srgb,
+    &ColorProfile::new_bt2020_pq(),
+    &ColorProfile::new_srgb(),
     ToneMappingMethod::Rec2408(GainHdrMetadata{
         content_max_brightness: 2000f32,
         display_max_brightness: 250f32,
     }),
-    GamutClipping::Clip,
-);
+    MappingColorSpace::YRgb(CommonToneMapperParameters {
+        exposure: 1.0f32
+    }),
+)?;
 
 let dims = rgb.dimensions();
 let mut dst = vec![0u8; rgb.len()];

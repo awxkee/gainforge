@@ -30,9 +30,10 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, create_tone_mapper_rgb16, BufferStore, FilmicSplineParameters,
-    GainHdrMetadata, GainImage, GainImageMut, GamutClipping, GamutColorSpace, HdrTransferFunction,
-    IsoGainMap, MpfInfo, ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+    create_tone_mapper_rgb, create_tone_mapper_rgb16, BufferStore, CommonToneMapperParameters,
+    FilmicSplineParameters, GainHdrMetadata, GainImage, GainImageMut, GamutClipping, IsoGainMap,
+    JzazbzToneMapperParameters, MappingColorSpace, MpfInfo, RgbToneMapperParameters,
+    ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
 };
 use moxcms::ColorProfile;
 use std::fs::File;
@@ -167,13 +168,11 @@ fn main() {
         .unwrap()
         .decode()
         .unwrap();
-    let rgb = img.to_rgb16();
+    let rgb = img.to_rgb8();
 
-    let tone_mapper = create_tone_mapper_rgb16(
-        HdrTransferFunction::PerceptualQuantizer,
-        GamutColorSpace::Bt2020,
-        TransferFunction::Srgb,
-        GamutColorSpace::Srgb,
+    let tone_mapper = create_tone_mapper_rgb(
+        &ColorProfile::new_bt2020_pq(),
+        &ColorProfile::new_srgb(),
         // ToneMappingMethod::FilmicSpline(FilmicSplineParameters {
         //     saturation: 0f32,
         //     white_point_source: 8f32,
@@ -181,13 +180,18 @@ fn main() {
         //     black_point_target: 0.01f32,
         //     ..Default::default()
         // }),
-        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
-        GamutClipping::NoClip,
-        // ToneMappingMethod::Rec2408(GainHDRMetadata::new(2000f32, 250f32)),
-        // ToneMappingMethod::Rec2408(GainHDRMetadata::new(1000f32, 250f32)),
-    );
+        // ToneMappingMethod::Reinhard,
+        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
+        ToneMappingMethod::Filmic,
+        MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1.0f32 }),
+        // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
+        //     content_brightness: 2000f32,
+        //     exposure: 1f32,
+        // }),
+    )
+    .unwrap();
     let dims = rgb.dimensions();
-    let mut dst = vec![0u16; rgb.len()];
+    let mut dst = vec![0u8; rgb.len()];
     let work_time = Instant::now();
     for (src, dst) in rgb
         .chunks_exact(rgb.dimensions().0 as usize * 3)
@@ -227,11 +231,11 @@ fn main() {
     // )
     // .unwrap();
 
-    let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
+    // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
         "clamp_compress.jpg",
-        &compressed,
+        &dst,
         img.width(),
         img.height(),
         image::ExtendedColorType::Rgb8,

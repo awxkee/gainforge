@@ -36,16 +36,16 @@
 //! let rgb = img.to_rgb8();
 //!
 //! let tone_mapper = create_tone_mapper_rgb(
-//!     HdrTransferFunction::PerceptualQuantizer,
-//!     GamutColorSpace::Bt2020,
-//!     TransferFunction::Srgb,
-//!     GamutColorSpace::Srgb,
+//!     &ColorProfile::new_bt2020_pq(),
+//!     &ColorProfile::new_srgb(),
 //!     ToneMappingMethod::Rec2408(GainHdrMetadata{
 //!         content_max_brightness: 2000f32,
 //!         display_max_brightness: 250f32,
 //!     }),
-//!     GamutClipping::Clip,
-//! );
+//!     MappingColorSpace::YRgb(CommonToneMapperParameters {
+//!         exposure: 1.0f32
+// !    }),
+//! )?;
 //!
 //! let dims = rgb.dimensions();
 //! let mut dst = vec![0u8; rgb.len()];
@@ -231,7 +231,6 @@
 #![allow(clippy::manual_clamp, clippy::excessive_precision)]
 #[cfg(feature = "uhdr")]
 mod apply_gain_map;
-mod cms;
 mod err;
 mod gain_image;
 mod gamma;
@@ -247,10 +246,9 @@ pub use apply_gain_map::{
     apply_gain_map_rgb, apply_gain_map_rgb10, apply_gain_map_rgb12, apply_gain_map_rgb16,
     apply_gain_map_rgba, apply_gain_map_rgba10, apply_gain_map_rgba12, apply_gain_map_rgba16,
 };
-pub use cms::GamutColorSpace;
 pub use err::ForgeError;
 pub use gain_image::{BufferStore, GainImage, GainImageMut};
-pub use gamma::{HdrTransferFunction, TransferFunction};
+pub use gamma::TransferFunction;
 #[cfg(feature = "uhdr")]
 pub use iso_gain_map::{
     make_gainmap_weight, IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo,
@@ -264,7 +262,8 @@ pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
     create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
     create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
-    create_tone_mapper_rgba16, GainHdrMetadata, GamutClipping, SyncToneMapper16Bit,
+    create_tone_mapper_rgba16, CommonToneMapperParameters, GainHdrMetadata, GamutClipping,
+    JzazbzToneMapperParameters, MappingColorSpace, RgbToneMapperParameters, SyncToneMapper16Bit,
     SyncToneMapper8Bit, ToneMapper,
 };
 
