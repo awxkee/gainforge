@@ -17,7 +17,7 @@ exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png",
 rust-version = "1.82.0"
 
 [dependencies]
-moxcms = {path = "../../RustroverProjects/moxcms"}
+moxcms = "0.4.0"
 num-traits = "0.2"
 quick-xml = { version = "0.37", features = ["serde", "serde-types", "serialize"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
