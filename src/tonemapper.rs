@@ -735,7 +735,7 @@ fn create_tone_mapper_u8<const CN: usize>(
                 .unwrap_or(Matrix3f::IDENTITY),
             to_rgb: output_color_space
                 .rgb_to_xyz_matrix()
-                .and_then(|x| x.inverse())
+                .map(|x| x.inverse())
                 .unwrap_or(Matrix3f::IDENTITY),
             tone_map,
             parameters: params,
@@ -765,7 +765,7 @@ fn create_tone_mapper_u8<const CN: usize>(
                     .unwrap_or(Matrix3f::IDENTITY),
                 to_rgb: output_color_space
                     .rgb_to_xyz_matrix()
-                    .and_then(|x| x.inverse())
+                    .map(|x| x.inverse())
                     .unwrap_or(Matrix3f::IDENTITY),
                 tone_map,
                 parameters: brightness,
@@ -860,7 +860,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                     .unwrap_or(Matrix3f::IDENTITY),
                 to_rgb: output_color_space
                     .rgb_to_xyz_matrix()
-                    .and_then(|x| x.inverse())
+                    .map(|x| x.inverse())
                     .unwrap_or(Matrix3f::IDENTITY),
                 tone_map,
                 parameters: params,
@@ -891,7 +891,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                     .unwrap_or(Matrix3f::IDENTITY),
                 to_rgb: output_color_space
                     .rgb_to_xyz_matrix()
-                    .and_then(|x| x.inverse())
+                    .map(|x| x.inverse())
                     .unwrap_or(Matrix3f::IDENTITY),
                 tone_map,
                 parameters: brightness,
