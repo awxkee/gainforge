@@ -183,7 +183,10 @@ fn main() {
         // ToneMappingMethod::Reinhard,
         // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
         ToneMappingMethod::Filmic,
-        MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1.0f32 }),
+        MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
+            exposure: 1.0f32,
+            content_brightness: 2000f32,
+        }),
         // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
         //     content_brightness: 2000f32,
         //     exposure: 1f32,

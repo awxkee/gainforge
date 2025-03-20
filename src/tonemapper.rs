@@ -667,13 +667,13 @@ fn create_tone_mapper_u8<const CN: usize>(
         linear_table_b = linear_table_g.clone();
     } else {
         linear_table_r = input_color_space
-            .build_r_linearize_table::<256, 8>(true)
+            .build_r_linearize_table::<u8, 256, 8>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
         linear_table_g = input_color_space
-            .build_g_linearize_table::<256, 8>(true)
+            .build_g_linearize_table::<u8, 256, 8>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
         linear_table_b = input_color_space
-            .build_b_linearize_table::<256, 8>(true)
+            .build_b_linearize_table::<u8, 256, 8>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
     }
     let (gamma_table_r, gamma_table_g, gamma_table_b);
@@ -791,13 +791,13 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
         linear_table_b = linear_table_g.clone();
     } else {
         linear_table_r = input_color_space
-            .build_r_linearize_table::<65536, BIT_DEPTH>(true)
+            .build_r_linearize_table::<u16, 65536, BIT_DEPTH>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
         linear_table_g = input_color_space
-            .build_g_linearize_table::<65536, BIT_DEPTH>(true)
+            .build_g_linearize_table::<u16, 65536, BIT_DEPTH>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
         linear_table_b = input_color_space
-            .build_b_linearize_table::<65536, BIT_DEPTH>(true)
+            .build_b_linearize_table::<u16, 65536, BIT_DEPTH>(true)
             .map_err(|_| ForgeError::InvalidTrcCurve)?;
     }
     let (gamma_table_r, gamma_table_g, gamma_table_b);
