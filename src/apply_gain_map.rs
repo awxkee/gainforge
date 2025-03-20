@@ -30,7 +30,7 @@ use crate::iso_gain_map::{GainLUT, GainMap};
 use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
 use crate::{ForgeError, GainImage, GainImageMut};
-use moxcms::{ColorProfile, Matrix3f};
+use moxcms::{ColorProfile, GammaLutInterpolate, Matrix3f, PointeeSizeExpressible};
 use num_traits::AsPrimitive;
 use std::fmt::{Debug, Display};
 
@@ -340,7 +340,14 @@ pub fn apply_gain_map_rgba16(
 
 #[allow(clippy::too_many_arguments)]
 fn apply_gain_map<
-    T: Copy + 'static + Default + Debug + AsPrimitive<usize> + Display,
+    T: Copy
+        + 'static
+        + Default
+        + Debug
+        + AsPrimitive<usize>
+        + Display
+        + PointeeSizeExpressible
+        + GammaLutInterpolate,
     const N: usize,
     const GAIN_N: usize,
     const LIN_DEPTH: usize,
@@ -412,13 +419,13 @@ where
         .ok_or(ForgeError::InvalidIcc)?;
 
     let image_linearize_map_r = img_profile
-        .build_r_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_r_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
     let image_linearize_map_g = img_profile
-        .build_g_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_g_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
     let image_linearize_map_b = img_profile
-        .build_b_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_b_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
 
     let gain_map_icc_profile = (if gain_map.use_base_cg {
@@ -429,13 +436,13 @@ where
     .ok_or(ForgeError::InvalidGainMapConfiguration)?;
 
     let gain_image_linearize_map_r = gain_map_icc_profile
-        .build_r_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_r_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
     let gain_image_linearize_map_g = gain_map_icc_profile
-        .build_g_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_g_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
     let gain_image_linearize_map_b = gain_map_icc_profile
-        .build_b_linearize_table::<LIN_DEPTH, BIT_DEPTH>(true)
+        .build_b_linearize_table::<T, LIN_DEPTH, BIT_DEPTH>(true)
         .map_err(|_| ForgeError::InvalidIcc)?;
 
     let mut linearized_image_content = vec![0f32; image.width * N];
