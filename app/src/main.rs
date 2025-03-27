@@ -181,12 +181,10 @@ fn main() {
         //     ..Default::default()
         // }),
         // ToneMappingMethod::Reinhard,
-        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 250f32)),
+        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
         ToneMappingMethod::Filmic,
-        MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
-            exposure: 1.0f32,
-            content_brightness: 2000f32,
-        }),
+        MappingColorSpace::Rgb(RgbToneMapperParameters { exposure: 1.0f32, gamut_clipping: GamutClipping::NoClip }),
+        // MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1.0f32 }),
         // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
         //     content_brightness: 2000f32,
         //     exposure: 1f32,
@@ -237,7 +235,7 @@ fn main() {
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
-        "clamp_compress.jpg",
+        "clamp_arri.jpg",
         &dst,
         img.width(),
         img.height(),

@@ -97,7 +97,7 @@ impl<const CN: usize> Rec2408ToneMapper<CN> {
 impl<const CN: usize> Rec2408ToneMapper<CN> {
     #[inline(always)]
     fn tonemap(&self, luma: f32) -> f32 {
-        (1f32 + self.w_a * luma) / (1f32 + self.w_b * luma)
+        mlaf(1f32, self.w_a, luma) / mlaf(1f32, self.w_b, luma)
     }
 }
 

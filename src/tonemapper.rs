@@ -221,67 +221,51 @@ impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
     }
 }
 
-pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
-{
-    pub(crate) linear_map_r: Box<[f32; N]>,
-    pub(crate) linear_map_g: Box<[f32; N]>,
-    pub(crate) linear_map_b: Box<[f32; N]>,
-    pub(crate) gamma_map_r: Box<[T; 65536]>,
-    pub(crate) gamma_map_g: Box<[T; 65536]>,
-    pub(crate) gamma_map_b: Box<[T; 65536]>,
-    pub(crate) im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
+struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
+    linear_map_r: Box<[f32; N]>,
+    linear_map_g: Box<[f32; N]>,
+    linear_map_b: Box<[f32; N]>,
+    gamma_map_r: Box<[T; 65536]>,
+    gamma_map_g: Box<[T; 65536]>,
+    gamma_map_b: Box<[T; 65536]>,
+    im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
     tone_map: Box<SyncToneMap>,
     params: RgbToneMapperParameters,
 }
 
-pub(crate) struct ToneMapperImplYrg<
-    T: Copy,
-    const N: usize,
-    const CN: usize,
-    const GAMMA_SIZE: usize,
-> {
-    pub(crate) linear_map_r: Box<[f32; N]>,
-    pub(crate) linear_map_g: Box<[f32; N]>,
-    pub(crate) linear_map_b: Box<[f32; N]>,
-    pub(crate) gamma_map_r: Box<[T; 65536]>,
-    pub(crate) gamma_map_g: Box<[T; 65536]>,
-    pub(crate) gamma_map_b: Box<[T; 65536]>,
-    pub(crate) to_xyz: Matrix3f,
-    pub(crate) to_rgb: Matrix3f,
+struct ToneMapperImplYrg<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
+    linear_map_r: Box<[f32; N]>,
+    linear_map_g: Box<[f32; N]>,
+    linear_map_b: Box<[f32; N]>,
+    gamma_map_r: Box<[T; 65536]>,
+    gamma_map_g: Box<[T; 65536]>,
+    gamma_map_b: Box<[T; 65536]>,
+    to_xyz: Matrix3f,
+    to_rgb: Matrix3f,
     tone_map: Box<SyncToneMap>,
     parameters: CommonToneMapperParameters,
 }
 
-pub(crate) struct ToneMapperImplOklab<
-    T: Copy,
-    const N: usize,
-    const CN: usize,
-    const GAMMA_SIZE: usize,
-> {
-    pub(crate) linear_map_r: Box<[f32; N]>,
-    pub(crate) linear_map_g: Box<[f32; N]>,
-    pub(crate) linear_map_b: Box<[f32; N]>,
-    pub(crate) gamma_map_r: Box<[T; 65536]>,
-    pub(crate) gamma_map_g: Box<[T; 65536]>,
-    pub(crate) gamma_map_b: Box<[T; 65536]>,
+struct ToneMapperImplOklab<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
+    linear_map_r: Box<[f32; N]>,
+    linear_map_g: Box<[f32; N]>,
+    linear_map_b: Box<[f32; N]>,
+    gamma_map_r: Box<[T; 65536]>,
+    gamma_map_g: Box<[T; 65536]>,
+    gamma_map_b: Box<[T; 65536]>,
     tone_map: Box<SyncToneMap>,
     parameters: CommonToneMapperParameters,
 }
 
-pub(crate) struct ToneMapperImplJzazbz<
-    T: Copy,
-    const N: usize,
-    const CN: usize,
-    const GAMMA_SIZE: usize,
-> {
-    pub(crate) linear_map_r: Box<[f32; N]>,
-    pub(crate) linear_map_g: Box<[f32; N]>,
-    pub(crate) linear_map_b: Box<[f32; N]>,
-    pub(crate) gamma_map_r: Box<[T; 65536]>,
-    pub(crate) gamma_map_g: Box<[T; 65536]>,
-    pub(crate) gamma_map_b: Box<[T; 65536]>,
-    pub(crate) to_xyz: Matrix3f,
-    pub(crate) to_rgb: Matrix3f,
+struct ToneMapperImplJzazbz<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
+    linear_map_r: Box<[f32; N]>,
+    linear_map_g: Box<[f32; N]>,
+    linear_map_b: Box<[f32; N]>,
+    gamma_map_r: Box<[T; 65536]>,
+    gamma_map_g: Box<[T; 65536]>,
+    gamma_map_b: Box<[T; 65536]>,
+    to_xyz: Matrix3f,
+    to_rgb: Matrix3f,
     tone_map: Box<SyncToneMap>,
     parameters: JzazbzToneMapperParameters,
 }
