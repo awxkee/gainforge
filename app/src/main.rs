@@ -175,19 +175,23 @@ fn main() {
         &ColorProfile::new_srgb(),
         // ToneMappingMethod::FilmicSpline(FilmicSplineParameters {
         //     saturation: 0f32,
-        //     white_point_source: 8f32,
+        //     white_point_source: 5f32,
         //     black_point_source: -8f32,
         //     black_point_target: 0.01f32,
         //     ..Default::default()
         // }),
         // ToneMappingMethod::Reinhard,
-        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
-        ToneMappingMethod::Filmic,
-        MappingColorSpace::Rgb(RgbToneMapperParameters { exposure: 1.0f32, gamut_clipping: GamutClipping::NoClip }),
-        // MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1.0f32 }),
+        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
+        // ToneMappingMethod::Filmic,
+        MappingColorSpace::Rgb(RgbToneMapperParameters {
+            exposure: 1.0f32,
+            gamut_clipping: GamutClipping::Clip,
+        }),
+        // MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1f32, gamut_clipping: GamutClipping::Clip }),
         // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
         //     content_brightness: 2000f32,
         //     exposure: 1f32,
+        //     gamut_clipping: GamutClipping::Clip,
         // }),
     )
     .unwrap();
@@ -235,7 +239,7 @@ fn main() {
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
-        "clamp_arri.jpg",
+        "clamp_rgb.jpg",
         &dst,
         img.width(),
         img.height(),
