@@ -36,8 +36,8 @@ use crate::mlaf::mlaf;
 use crate::spline::{create_spline, SplineToneMapper};
 use crate::{m_clamp, ToneMappingMethod};
 use moxcms::{
-    gamut_clip_preserve_chroma, CmsError, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab, Rgb,
-    Yrg,
+    adaption_matrix, filmlike_clip, CmsError, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab,
+    Rgb, Yrg, WHITE_POINT_D50, WHITE_POINT_D65,
 };
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
@@ -107,11 +107,13 @@ pub enum MappingColorSpace {
 pub struct JzazbzToneMapperParameters {
     pub content_brightness: f32,
     pub exposure: f32,
+    pub gamut_clipping: GamutClipping,
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub struct CommonToneMapperParameters {
     pub exposure: f32,
+    pub gamut_clipping: GamutClipping,
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
@@ -125,13 +127,17 @@ impl Default for JzazbzToneMapperParameters {
         Self {
             content_brightness: 1000f32,
             exposure: 1.0f32,
+            gamut_clipping: GamutClipping::Clip,
         }
     }
 }
 
 impl Default for CommonToneMapperParameters {
     fn default() -> Self {
-        Self { exposure: 1.0f32 }
+        Self {
+            exposure: 1.0f32,
+            gamut_clipping: GamutClipping::Clip,
+        }
     }
 }
 
@@ -207,7 +213,7 @@ impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
 
             let mut rgb = Rgb::new(r, g, b);
             if rgb.is_out_of_gamut() {
-                rgb = gamut_clip_preserve_chroma(rgb);
+                rgb = filmlike_clip(rgb);
                 chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
                 chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
                 chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
@@ -401,7 +407,10 @@ where
         for dst in linearized_content.chunks_exact_mut(CN) {
             let yrg = Yrg::new(dst[0], dst[1], dst[2]);
             let xyz = yrg.to_xyz();
-            let rgb = xyz.to_linear_rgb(self.to_rgb);
+            let mut rgb = xyz.to_linear_rgb(self.to_rgb);
+            if rgb.is_out_of_gamut() {
+                rgb = filmlike_clip(rgb);
+            }
             dst[0] = m_clamp(rgb.r, 0.0, 1.0);
             dst[1] = m_clamp(rgb.g, 0.0, 1.0);
             dst[2] = m_clamp(rgb.b, 0.0, 1.0);
@@ -485,7 +494,10 @@ where
         }
 
         for chunk in linearized_content.chunks_exact_mut(CN) {
-            let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
+            let mut rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
+            if rgb.is_out_of_gamut() {
+                rgb = filmlike_clip(rgb);
+            }
             chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
             chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
             chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
@@ -566,7 +578,10 @@ where
         for dst in linearized_content.chunks_exact_mut(CN) {
             let jab = Jzazbz::new(dst[0], dst[1], dst[2]);
             let xyz = jab.to_xyz(self.parameters.content_brightness);
-            let rgb = xyz.to_linear_rgb(self.to_rgb);
+            let mut rgb = xyz.to_linear_rgb(self.to_rgb);
+            if rgb.is_out_of_gamut() {
+                rgb = filmlike_clip(rgb);
+            }
             dst[0] = m_clamp(rgb.r, 0.0, 1.0);
             dst[1] = m_clamp(rgb.g, 0.0, 1.0);
             dst[2] = m_clamp(rgb.b, 0.0, 1.0);
@@ -632,7 +647,7 @@ fn make_icc_transform(
 ) -> Matrix3f {
     input_color_space
         .transform_matrix(output_color_space)
-        .unwrap_or(Matrix3f::IDENTITY)
+        .to_f32()
 }
 
 fn create_tone_mapper_u8<const CN: usize>(
@@ -707,23 +722,29 @@ fn create_tone_mapper_u8<const CN: usize>(
                 params,
             }))
         }
-        MappingColorSpace::YRgb(params) => Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
-            linear_map_r: linear_table_r,
-            linear_map_g: linear_table_g,
-            linear_map_b: linear_table_b,
-            gamma_map_r: gamma_table_r,
-            gamma_map_b: gamma_table_g,
-            gamma_map_g: gamma_table_b,
-            to_xyz: input_color_space
-                .rgb_to_xyz_matrix()
-                .unwrap_or(Matrix3f::IDENTITY),
-            to_rgb: output_color_space
-                .rgb_to_xyz_matrix()
-                .map(|x| x.inverse())
-                .unwrap_or(Matrix3f::IDENTITY),
-            tone_map,
-            parameters: params,
-        })),
+        MappingColorSpace::YRgb(params) => {
+            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
+            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
+
+            // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
+            let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
+            let mut to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
+
+            Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
+                linear_map_r: linear_table_r,
+                linear_map_g: linear_table_g,
+                linear_map_b: linear_table_b,
+                gamma_map_r: gamma_table_r,
+                gamma_map_b: gamma_table_g,
+                gamma_map_g: gamma_table_b,
+                to_xyz,
+                to_rgb,
+                tone_map,
+                parameters: params,
+            }))
+        }
         MappingColorSpace::Oklab(params) => {
             Ok(Box::new(ToneMapperImplOklab::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
@@ -737,6 +758,13 @@ fn create_tone_mapper_u8<const CN: usize>(
             }))
         }
         MappingColorSpace::Jzazbz(brightness) => {
+            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
+            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
+
+            // We need to adapt PCS D50 to XYZ with D65 white point first.
+            let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+
             Ok(Box::new(ToneMapperImplJzazbz::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
@@ -744,13 +772,8 @@ fn create_tone_mapper_u8<const CN: usize>(
                 gamma_map_r: gamma_table_r,
                 gamma_map_b: gamma_table_g,
                 gamma_map_g: gamma_table_b,
-                to_xyz: input_color_space
-                    .rgb_to_xyz_matrix()
-                    .unwrap_or(Matrix3f::IDENTITY),
-                to_rgb: output_color_space
-                    .rgb_to_xyz_matrix()
-                    .map(|x| x.inverse())
-                    .unwrap_or(Matrix3f::IDENTITY),
+                to_xyz,
+                to_rgb,
                 tone_map,
                 parameters: brightness,
             }))
@@ -832,6 +855,15 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             }))
         }
         MappingColorSpace::YRgb(params) => {
+            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
+            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
+
+            // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
+            let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
+            let mut to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
+
             Ok(Box::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
@@ -839,13 +871,8 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                 gamma_map_r: gamma_table_r,
                 gamma_map_b: gamma_table_g,
                 gamma_map_g: gamma_table_b,
-                to_xyz: input_color_space
-                    .rgb_to_xyz_matrix()
-                    .unwrap_or(Matrix3f::IDENTITY),
-                to_rgb: output_color_space
-                    .rgb_to_xyz_matrix()
-                    .map(|x| x.inverse())
-                    .unwrap_or(Matrix3f::IDENTITY),
+                to_xyz,
+                to_rgb,
                 tone_map,
                 parameters: params,
             }))
@@ -863,6 +890,13 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             }))
         }
         MappingColorSpace::Jzazbz(brightness) => {
+            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
+            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
+
+            // We need to adapt PCS D50 to XYZ with D65 white point first.
+            let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+
             Ok(Box::new(ToneMapperImplJzazbz::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
@@ -870,13 +904,8 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                 gamma_map_r: gamma_table_r,
                 gamma_map_b: gamma_table_g,
                 gamma_map_g: gamma_table_b,
-                to_xyz: input_color_space
-                    .rgb_to_xyz_matrix()
-                    .unwrap_or(Matrix3f::IDENTITY),
-                to_rgb: output_color_space
-                    .rgb_to_xyz_matrix()
-                    .map(|x| x.inverse())
-                    .unwrap_or(Matrix3f::IDENTITY),
+                to_xyz,
+                to_rgb,
                 tone_map,
                 parameters: brightness,
             }))
@@ -888,9 +917,7 @@ fn make_mapper<const CN: usize>(
     input_color_space: &ColorProfile,
     method: ToneMappingMethod,
 ) -> Box<SyncToneMap> {
-    let primaries = input_color_space
-        .rgb_to_xyz_matrix()
-        .unwrap_or(Matrix3f::IDENTITY);
+    let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
     let luma_primaries: [f32; 3] = primaries.v[1];
     let tone_map: Box<SyncToneMap> = match method {
         ToneMappingMethod::Rec2408(data) => Box::new(Rec2408ToneMapper::<CN>::new(

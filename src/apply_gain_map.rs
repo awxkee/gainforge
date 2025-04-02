@@ -375,11 +375,9 @@ where
     assert!(GAMMA_DEPTH == 8192 || GAMMA_DEPTH == 16384 || GAMMA_DEPTH == 65536);
     assert!(BIT_DEPTH == 8 || BIT_DEPTH == 10 || BIT_DEPTH == 12 || BIT_DEPTH == 16);
 
-    let transform = if let Some(icc) = image_icc_profile {
-        icc.transform_matrix(destination_gamut)
-    } else {
-        None
-    };
+    let transform = image_icc_profile
+        .as_ref()
+        .map(|x| x.transform_matrix(destination_gamut).to_f32());
 
     let lut = GainLUT::<LIN_DEPTH>::new(gain_map, weight);
 
