@@ -29,7 +29,17 @@
 use crate::mlaf::mlaf;
 use crate::spline::FilmicSplineParameters;
 use crate::GainHdrMetadata;
-use std::ops::{Add, Div, Mul, Sub};
+use moxcms::{FusedLog2, FusedPow, Matrix3f, Rgb, Vector3f};
+use std::ops::Mul;
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Default)]
+pub enum AgxLook {
+    Agx,
+    #[default]
+    Punchy,
+    Golden,
+    Custom(AgxCustomLook),
+}
 
 /// Defines a tone mapping method.
 ///
@@ -61,6 +71,9 @@ pub enum ToneMappingMethod {
     /// This is a parameterized curve based on the Blender Filmic tone mapping
     /// method similar to the module found in Ansel/Darktable.
     FilmicSpline(FilmicSplineParameters),
+    /// Blender AGX tone mapper.
+    /// It's not really supposed to be used on other color model than RGB.
+    Agx(AgxLook),
 }
 
 pub(crate) trait ToneMap {
@@ -178,88 +191,9 @@ impl<const CN: usize> ToneMap for FilmicToneMapper<CN> {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct AcesToneMapper<const CN: usize> {}
 
-#[derive(Copy, Clone)]
-pub(crate) struct Rgb {
-    pub(crate) r: f32,
-    pub(crate) g: f32,
-    pub(crate) b: f32,
-}
-
-impl Mul<Rgb> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn mul(self, rhs: Rgb) -> Self::Output {
-        Self {
-            r: self.r * rhs.r,
-            g: self.g * rhs.g,
-            b: self.b * rhs.b,
-        }
-    }
-}
-
-impl Add<f32> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn add(self, rhs: f32) -> Self::Output {
-        Self {
-            r: self.r + rhs,
-            g: self.g + rhs,
-            b: self.b + rhs,
-        }
-    }
-}
-
-impl Sub<f32> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn sub(self, rhs: f32) -> Self::Output {
-        Self {
-            r: self.r - rhs,
-            g: self.g - rhs,
-            b: self.b - rhs,
-        }
-    }
-}
-
-impl Mul<f32> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn mul(self, rhs: f32) -> Self::Output {
-        Self {
-            r: self.r * rhs,
-            g: self.g * rhs,
-            b: self.b * rhs,
-        }
-    }
-}
-
-impl Div<f32> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn div(self, rhs: f32) -> Self::Output {
-        Self {
-            r: self.r / rhs,
-            g: self.g / rhs,
-            b: self.b / rhs,
-        }
-    }
-}
-
-impl Div<Rgb> for Rgb {
-    type Output = Self;
-    #[inline(always)]
-    fn div(self, rhs: Rgb) -> Self::Output {
-        Self {
-            r: self.r / rhs.r,
-            g: self.g / rhs.g,
-            b: self.b / rhs.b,
-        }
-    }
-}
-
 impl<const CN: usize> AcesToneMapper<CN> {
     #[inline(always)]
-    fn mul_input(&self, color: Rgb) -> Rgb {
+    fn mul_input(&self, color: Rgb<f32>) -> Rgb<f32> {
         let a = mlaf(
             mlaf(0.35458f32 * color.g, 0.04823f32, color.b),
             0.59719f32,
@@ -279,7 +213,7 @@ impl<const CN: usize> AcesToneMapper<CN> {
     }
 
     #[inline(always)]
-    fn mul_output(&self, color: Rgb) -> Rgb {
+    fn mul_output(&self, color: Rgb<f32>) -> Rgb<f32> {
         let a = mlaf(
             mlaf(1.60475f32 * color.r, -0.53108f32, color.g),
             -0.07367f32,
@@ -448,6 +382,179 @@ impl<const CN: usize> ToneMap for ClampToneMapper<CN> {
     fn process_luma_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
             chunk[0] = chunk[0].min(1f32).max(0f32);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AgxToneMapper<const CN: usize> {
+    pub(crate) primaries: [f32; 3],
+    pub(crate) agx_custom_look: AgxCustomLook,
+}
+
+const AGX_INSET: Matrix3f = Matrix3f {
+    v: [
+        [0.856627153315983, 0.137318972929847, 0.11189821299995],
+        [0.0951212405381588, 0.761241990602591, 0.0767994186031903],
+        [0.0482516061458583, 0.101439036467562, 0.811302368396859],
+    ],
+};
+
+const AGX_OUTSET_INV: Matrix3f = Matrix3f {
+    v: [
+        [0.899796955911611, 0.11142098895748, 0.11142098895748],
+        [0.0871996192028351, 0.875575586156966, 0.0871996192028349],
+        [0.013003424885555, 0.0130034248855548, 0.801379391839686],
+    ],
+};
+
+#[inline]
+fn agx_default_contrast(x: f32) -> f32 {
+    let x2 = x * x;
+    let x4 = x2 * x2;
+    let x6 = x4 * x2;
+
+    let w0 = mlaf(0.002857, -0.1718, x);
+    let w1 = mlaf(4.361, -28.72, x);
+    let w2 = mlaf(92.06, -126.7, x);
+    let w3 = mlaf(78.01, -17.86, x);
+
+    let z0 = mlaf(w0, x2, w1);
+    let z1 = mlaf(x4 * w2, x6, w3);
+
+    z1 + z0
+}
+
+const AGX_OUTSET: Matrix3f = AGX_OUTSET_INV.inverse();
+
+const AGX_MIN_EV: f32 = -12.47393; // log2(pow(2, LOG2_MIN) * MIDDLE_GRAY)
+const AGX_MAX_EV: f32 = 4.026069; // log2(pow(2, LOG2_MAX) * MIDDLE_GRAY)
+
+#[derive(Copy, Clone, Default)]
+pub(crate) struct AgxPunchy {}
+
+#[derive(Copy, Clone, Default)]
+pub(crate) struct AgxGolden {}
+
+#[derive(Copy, Clone, Default)]
+pub(crate) struct AgxDefault {}
+
+#[derive(Copy, Clone, Default, Debug, PartialOrd, PartialEq)]
+pub struct AgxCustomLook {
+    pub slope: Rgb<f32>,
+    pub power: Rgb<f32>,
+    pub saturation: Rgb<f32>,
+    pub offset: Rgb<f32>,
+}
+
+impl AgxPunchy {
+    pub(crate) fn custom_look() -> AgxCustomLook {
+        AgxCustomLook {
+            slope: Rgb::new(1.0, 1.0, 1.0),
+            power: Rgb::new(1.0, 1.0, 1.0),
+            saturation: Rgb::new(1.4, 1.4, 1.4),
+            offset: Rgb::default(),
+        }
+    }
+}
+
+impl AgxGolden {
+    pub(crate) fn custom_look() -> AgxCustomLook {
+        AgxCustomLook {
+            slope: Rgb::new(1.0, 0.9, 0.5),
+            power: Rgb::new(0.8, 0.8, 0.8),
+            saturation: Rgb::new(1.2, 1.2, 1.2),
+            offset: Rgb::default(),
+        }
+    }
+}
+
+impl AgxDefault {
+    pub(crate) fn custom_look() -> AgxCustomLook {
+        AgxCustomLook {
+            slope: Rgb::new(1.0, 1.0, 1.0),
+            power: Rgb::new(1.0, 1.0, 1.0),
+            saturation: Rgb::new(1.0, 1.0, 1.0),
+            offset: Rgb::default(),
+        }
+    }
+}
+
+impl<const CN: usize> AgxToneMapper<CN> {
+    #[inline]
+    fn look(&self, rgb: Rgb<f32>) -> Rgb<f32> {
+        let slope = self.agx_custom_look.slope;
+        let power = self.agx_custom_look.power;
+        let sat = self.agx_custom_look.saturation;
+        let offset = self.agx_custom_look.offset;
+
+        let dot = offset.mla(rgb, slope).max(0.);
+
+        let z = dot.f_pow(power);
+        let luma = mlaf(
+            mlaf(self.primaries[0] * z.r, self.primaries[1], z.g),
+            self.primaries[2],
+            z.b,
+        );
+        sat.mul(z - luma) + luma
+    }
+
+    #[inline]
+    fn apply(&self, v: Rgb<f32>) -> Rgb<f32> {
+        let z = v.abs();
+        let vec = Vector3f { v: [z.r, z.g, z.b] };
+        let z0 = AGX_INSET.f_mul_vector(vec);
+        let mut z1 = Rgb {
+            r: z0.v[0],
+            g: z0.v[1],
+            b: z0.v[2],
+        };
+        z1 = z1.max(1e-10);
+        let z2 = z1.f_log2().max(AGX_MIN_EV).min(AGX_MAX_EV);
+        const RECIP_EV: f32 = 1.0 / (AGX_MAX_EV - AGX_MIN_EV);
+        let z3 = (z2 - AGX_MIN_EV) * RECIP_EV;
+        let z_contrast = Rgb {
+            r: agx_default_contrast(z3.r),
+            g: agx_default_contrast(z3.g),
+            b: agx_default_contrast(z3.b),
+        };
+        let z4 = self.look(z_contrast);
+        let vec1 = Vector3f {
+            v: [z4.r, z4.g, z4.b],
+        };
+        let z5 = AGX_OUTSET.f_mul_vector(vec1);
+        Rgb {
+            r: z5.v[0],
+            g: z5.v[1],
+            b: z5.v[2],
+        }
+    }
+}
+
+impl<const CN: usize> ToneMap for AgxToneMapper<CN> {
+    fn process_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let rgb = Rgb {
+                r: chunk[0],
+                g: chunk[1],
+                b: chunk[2],
+            };
+            let new_rgb = self.apply(rgb);
+            chunk[0] = new_rgb.r.min(1.).max(0.);
+            chunk[1] = new_rgb.g.min(1.).max(0.);
+            chunk[2] = new_rgb.b.min(1.).max(0.);
+        }
+    }
+
+    fn process_luma_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let rgb = Rgb {
+                r: chunk[0],
+                g: chunk[0],
+                b: chunk[0],
+            };
+            let new_rgb = self.apply(rgb);
+            chunk[0] = new_rgb.r.min(1.).max(0.);
         }
     }
 }

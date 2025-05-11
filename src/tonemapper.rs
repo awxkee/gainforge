@@ -29,8 +29,9 @@
 use crate::err::ForgeError;
 use crate::gamma::trc_from_cicp;
 use crate::mappers::{
-    AcesToneMapper, ClampToneMapper, ExtendedReinhardToneMapper, FilmicToneMapper,
-    Rec2408ToneMapper, ReinhardJodieToneMapper, ReinhardToneMapper, ToneMap,
+    AcesToneMapper, AgxDefault, AgxGolden, AgxLook, AgxPunchy, AgxToneMapper, ClampToneMapper,
+    ExtendedReinhardToneMapper, FilmicToneMapper, Rec2408ToneMapper, ReinhardJodieToneMapper,
+    ReinhardToneMapper, ToneMap,
 };
 use crate::mlaf::mlaf;
 use crate::spline::{create_spline, SplineToneMapper};
@@ -328,9 +329,9 @@ where
         } else {
             for chunk in linearized_content.chunks_exact_mut(CN) {
                 let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
-                chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
-                chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
-                chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
+                chunk[0] = rgb.r.min(1.).max(0.);
+                chunk[1] = rgb.g.min(1.).max(0.);
+                chunk[2] = rgb.b.min(1.).max(0.);
             }
         }
 
@@ -404,16 +405,30 @@ where
 
         self.tonemap_linearized_lane(&mut linearized_content)?;
 
-        for dst in linearized_content.chunks_exact_mut(CN) {
-            let yrg = Yrg::new(dst[0], dst[1], dst[2]);
-            let xyz = yrg.to_xyz();
-            let mut rgb = xyz.to_linear_rgb(self.to_rgb);
-            if rgb.is_out_of_gamut() {
-                rgb = filmlike_clip(rgb);
+        match self.parameters.gamut_clipping {
+            GamutClipping::NoClip => {
+                for dst in linearized_content.chunks_exact_mut(CN) {
+                    let yrg = Yrg::new(dst[0], dst[1], dst[2]);
+                    let xyz = yrg.to_xyz();
+                    let rgb = xyz.to_linear_rgb(self.to_rgb);
+                    dst[0] = rgb.r.min(1.).max(0.);
+                    dst[1] = rgb.g.min(1.).max(0.);
+                    dst[2] = rgb.b.min(1.).max(0.);
+                }
             }
-            dst[0] = m_clamp(rgb.r, 0.0, 1.0);
-            dst[1] = m_clamp(rgb.g, 0.0, 1.0);
-            dst[2] = m_clamp(rgb.b, 0.0, 1.0);
+            GamutClipping::Clip => {
+                for dst in linearized_content.chunks_exact_mut(CN) {
+                    let yrg = Yrg::new(dst[0], dst[1], dst[2]);
+                    let xyz = yrg.to_xyz();
+                    let mut rgb = xyz.to_linear_rgb(self.to_rgb);
+                    if rgb.is_out_of_gamut() {
+                        rgb = filmlike_clip(rgb);
+                    }
+                    dst[0] = rgb.r.min(1.).max(0.);
+                    dst[1] = rgb.g.min(1.).max(0.);
+                    dst[2] = rgb.b.min(1.).max(0.);
+                }
+            }
         }
 
         let scale_value = (GAMMA_SIZE - 1) as f32;
@@ -498,9 +513,9 @@ where
             if rgb.is_out_of_gamut() {
                 rgb = filmlike_clip(rgb);
             }
-            chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
-            chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
-            chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
+            chunk[0] = rgb.r.min(1.).max(0.);
+            chunk[1] = rgb.g.min(1.).max(0.);
+            chunk[2] = rgb.b.min(1.).max(0.);
         }
 
         let scale_value = (GAMMA_SIZE - 1) as f32;
@@ -575,16 +590,30 @@ where
 
         self.tonemap_linearized_lane(&mut linearized_content)?;
 
-        for dst in linearized_content.chunks_exact_mut(CN) {
-            let jab = Jzazbz::new(dst[0], dst[1], dst[2]);
-            let xyz = jab.to_xyz(self.parameters.content_brightness);
-            let mut rgb = xyz.to_linear_rgb(self.to_rgb);
-            if rgb.is_out_of_gamut() {
-                rgb = filmlike_clip(rgb);
+        match self.parameters.gamut_clipping {
+            GamutClipping::NoClip => {
+                for dst in linearized_content.chunks_exact_mut(CN) {
+                    let jab = Jzazbz::new(dst[0], dst[1], dst[2]);
+                    let xyz = jab.to_xyz(self.parameters.content_brightness);
+                    let rgb = xyz.to_linear_rgb(self.to_rgb);
+                    dst[0] = rgb.r.min(1.).max(0.);
+                    dst[1] = rgb.g.min(1.).max(0.);
+                    dst[2] = rgb.b.min(1.).max(0.);
+                }
             }
-            dst[0] = m_clamp(rgb.r, 0.0, 1.0);
-            dst[1] = m_clamp(rgb.g, 0.0, 1.0);
-            dst[2] = m_clamp(rgb.b, 0.0, 1.0);
+            GamutClipping::Clip => {
+                for dst in linearized_content.chunks_exact_mut(CN) {
+                    let jab = Jzazbz::new(dst[0], dst[1], dst[2]);
+                    let xyz = jab.to_xyz(self.parameters.content_brightness);
+                    let mut rgb = xyz.to_linear_rgb(self.to_rgb);
+                    if rgb.is_out_of_gamut() {
+                        rgb = filmlike_clip(rgb);
+                    }
+                    dst[0] = rgb.r.min(1.).max(0.);
+                    dst[1] = rgb.g.min(1.).max(0.);
+                    dst[2] = rgb.b.min(1.).max(0.);
+                }
+            }
         }
 
         let scale_value = (GAMMA_SIZE - 1) as f32;
@@ -710,6 +739,7 @@ fn create_tone_mapper_u8<const CN: usize>(
                         gamut_color_conversion: conversion,
                     })
                 };
+
             Ok(Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
@@ -724,12 +754,12 @@ fn create_tone_mapper_u8<const CN: usize>(
         }
         MappingColorSpace::YRgb(params) => {
             let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
 
             // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
             let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
             to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
-            let mut to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            let output_d50 = output_color_space.rgb_to_xyz_matrix().to_f32();
+            let mut to_rgb = output_d50.inverse() * d50_to_d65;
             to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
 
             Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
@@ -759,11 +789,11 @@ fn create_tone_mapper_u8<const CN: usize>(
         }
         MappingColorSpace::Jzazbz(brightness) => {
             let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
 
             // We need to adapt PCS D50 to XYZ with D65 white point first.
             let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
-            let to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            let output_d65 = output_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_rgb = output_d65.inverse() * d50_to_d65;
 
             Ok(Box::new(ToneMapperImplJzazbz::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
@@ -826,12 +856,12 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             .build_gamma_table::<u16, 65536, 65536, BIT_DEPTH>(&output_color_space.blue_trc, true)
             .unwrap();
     }
-    let conversion = make_icc_transform(input_color_space, output_color_space);
-
     let tone_map = make_mapper::<CN>(input_color_space, method);
 
     match working_color_space {
         MappingColorSpace::Rgb(params) => {
+            let conversion = make_icc_transform(input_color_space, output_color_space);
+
             let im_stage: Box<dyn InPlaceStage + Send + Sync> =
                 if params.gamut_clipping == GamutClipping::Clip {
                     Box::new(MatrixGamutClipping::<CN> {
@@ -842,6 +872,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                         gamut_color_conversion: conversion,
                     })
                 };
+
             Ok(Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
@@ -856,12 +887,12 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
         }
         MappingColorSpace::YRgb(params) => {
             let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
 
             // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
             let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
             to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
-            let mut to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            let output_d50 = output_color_space.rgb_to_xyz_matrix().to_f32();
+            let mut to_rgb = output_d50.inverse() * d50_to_d65;
             to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
 
             Ok(Box::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
@@ -891,11 +922,11 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
         }
         MappingColorSpace::Jzazbz(brightness) => {
             let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-            let d65_to_d50 = adaption_matrix(WHITE_POINT_D65.to_xyz(), WHITE_POINT_D50.to_xyz());
 
             // We need to adapt PCS D50 to XYZ with D65 white point first.
             let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
-            let to_rgb = d65_to_d50 * output_color_space.rgb_to_xyz_matrix().inverse().to_f32();
+            let output_d65 = output_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_rgb = output_d65.inverse() * d50_to_d65;
 
             Ok(Box::new(ToneMapperImplJzazbz::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
@@ -943,6 +974,24 @@ fn make_mapper<const CN: usize>(
                 primaries: luma_primaries,
             })
         }
+        ToneMappingMethod::Agx(look) => match look {
+            AgxLook::Agx => Box::new(AgxToneMapper::<CN> {
+                primaries: luma_primaries,
+                agx_custom_look: AgxDefault::custom_look(),
+            }),
+            AgxLook::Punchy => Box::new(AgxToneMapper::<CN> {
+                primaries: luma_primaries,
+                agx_custom_look: AgxPunchy::custom_look(),
+            }),
+            AgxLook::Golden => Box::new(AgxToneMapper::<CN> {
+                primaries: luma_primaries,
+                agx_custom_look: AgxGolden::custom_look(),
+            }),
+            AgxLook::Custom(look) => Box::new(AgxToneMapper::<CN> {
+                primaries: luma_primaries,
+                agx_custom_look: look,
+            }),
+        },
     };
     tone_map
 }

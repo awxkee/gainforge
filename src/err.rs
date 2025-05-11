@@ -74,9 +74,9 @@ impl Display for ForgeError {
             ForgeError::InvalidRenderingIntent => f.write_str("Invalid rendering intent"),
             ForgeError::DivisionByZero => f.write_str("Division by zero"),
             ForgeError::UnsupportedColorPrimaries(value) => {
-                f.write_fmt(format_args!("Unsupported color primaries, {}", value))
+                f.write_fmt(format_args!("Unsupported color primaries, {value}"))
             }
-            ForgeError::UnsupportedTrc(value) => write!(f, "Unsupported TRC {}", value),
+            ForgeError::UnsupportedTrc(value) => write!(f, "Unsupported TRC {value}"),
             ForgeError::InvalidGainMapConfiguration => {
                 f.write_str("Invalid Gain map configuration")
             }

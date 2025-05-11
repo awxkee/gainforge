@@ -6,8 +6,7 @@ edition = "2021"
 [dependencies]
 image = { version = "0.25.5", features = ["avif-native"] }
 gainforge = { path = "../", features = ["uhdr"] }
-turbojpeg = "1.2.2"
 num-traits = "0.2.19"
-moxcms = "0.6"
+moxcms = "^0.6.4"
 zune-jpeg = { git = "https://github.com/etemesi254/zune-image" }
-pic-scale = "0.5.3"
+pic-scale = "^0.6.4"
