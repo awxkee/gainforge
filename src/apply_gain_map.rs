@@ -27,10 +27,9 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::iso_gain_map::{GainLUT, GainMap};
-use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
 use crate::{ForgeError, GainImage, GainImageMut};
-use moxcms::{ColorProfile, GammaLutInterpolate, Matrix3f, PointeeSizeExpressible};
+use moxcms::{ColorProfile, GammaLutInterpolate, Matrix3f, PointeeSizeExpressible, Rgb};
 use num_traits::AsPrimitive;
 use std::fmt::{Debug, Display};
 

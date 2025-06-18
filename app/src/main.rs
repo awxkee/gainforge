@@ -30,12 +30,12 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, create_tone_mapper_rgb16, BufferStore, CommonToneMapperParameters,
-    FilmicSplineParameters, GainHdrMetadata, GainImage, GainImageMut, GamutClipping, IsoGainMap,
-    JzazbzToneMapperParameters, MappingColorSpace, MpfInfo, RgbToneMapperParameters,
-    ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+    create_tone_mapper_rgb, create_tone_mapper_rgb16, AgxCustomLook, AgxLook, BufferStore,
+    CommonToneMapperParameters, FilmicSplineParameters, GainHdrMetadata, GainImage, GainImageMut,
+    GamutClipping, IsoGainMap, JzazbzToneMapperParameters, MappingColorSpace, MpfInfo,
+    RgbToneMapperParameters, ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
 };
-use moxcms::ColorProfile;
+use moxcms::{ColorProfile, Rgb};
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::time::Instant;
@@ -164,7 +164,7 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
 }
 
 fn main() {
-    let img = image::ImageReader::open("./assets/hdr.avif")
+    let img = image::ImageReader::open("./assets/03.jpg")
         .unwrap()
         .decode()
         .unwrap();
@@ -180,19 +180,27 @@ fn main() {
         //     black_point_target: 0.01f32,
         //     ..Default::default()
         // }),
-        // ToneMappingMethod::Reinhard,
-        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
-        // ToneMappingMethod::Filmic,
-        MappingColorSpace::Rgb(RgbToneMapperParameters {
-            exposure: 1.0f32,
-            gamut_clipping: GamutClipping::Clip,
-        }),
-        // MappingColorSpace::YRgb(CommonToneMapperParameters { exposure: 1f32, gamut_clipping: GamutClipping::Clip }),
-        // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
-        //     content_brightness: 2000f32,
+        // ToneMappingMethod::Agx(AgxLook::Custom(        AgxCustomLook {
+        //     slope: Rgb::new(1.0, 1.0, 1.0),
+        //     power: Rgb::new(1.1, 1.1, 1.1),
+        //     saturation: Rgb::new(1.4, 1.4, 1.4),
+        //     offset: Rgb::default(),
+        // })),
+        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
+        ToneMappingMethod::Filmic,
+        // MappingColorSpace::Rgb(RgbToneMapperParameters {
+        //     gamut_clipping: GamutClipping::NoClip,
         //     exposure: 1f32,
-        //     gamut_clipping: GamutClipping::Clip,
         // }),
+        // MappingColorSpace::YRgb(CommonToneMapperParameters {
+        //     exposure: 1f32,
+        //     gamut_clipping: GamutClipping::NoClip,
+        // }),
+        MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
+            content_brightness: 2000.,
+            exposure: 1f32,
+            gamut_clipping: GamutClipping::NoClip,
+        }),
     )
     .unwrap();
     let dims = rgb.dimensions();
@@ -239,7 +247,7 @@ fn main() {
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
-        "clamp_rgb.jpg",
+        "clamp_agx_t.jpg",
         &dst,
         img.width(),
         img.height(),

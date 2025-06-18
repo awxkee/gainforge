@@ -26,8 +26,8 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::mappers::Rgb;
 use crate::mlaf::mlaf;
+use moxcms::{f_exp2, f_exp2f, f_log2f, f_powf, Rgb};
 use quick_xml::Reader;
 
 #[repr(C)]
@@ -709,8 +709,7 @@ impl IsoGainMap {
             return Err(UhdrErrorInfo {
                 error_code: UhdrErrorCode::UnsupportedFeature,
                 detail: Some(format!(
-                    "Unexpected minimum version {}, expected 0",
-                    min_version
+                    "Unexpected minimum version {min_version}, expected 0",
                 )),
             });
         }
@@ -729,8 +728,7 @@ impl IsoGainMap {
             return Err(UhdrErrorInfo {
                 error_code: UhdrErrorCode::UnsupportedFeature,
                 detail: Some(format!(
-                    "Unexpected channel count {}, expected 1 or 3",
-                    channel_count
+                    "Unexpected channel count {channel_count}, expected 1 or 3",
                 )),
             });
         }
@@ -849,9 +847,9 @@ impl IsoGainMap {
         let mut to = GainMap::default();
         for i in 0..3 {
             to.max_content_boost[i] =
-                (self.gain_map_max_n[i] as f64 / self.gain_map_max_d[i] as f64).exp2() as f32;
+                f_exp2(self.gain_map_max_n[i] as f64 / self.gain_map_max_d[i] as f64) as f32;
             to.min_content_boost[i] =
-                (self.gain_map_min_n[i] as f64 / self.gain_map_min_d[i] as f64).exp2() as f32;
+                f_exp2(self.gain_map_min_n[i] as f64 / self.gain_map_min_d[i] as f64) as f32;
 
             to.gamma[i] =
                 (self.gain_map_gamma_n[i] as f64 / self.gain_map_gamma_d[i] as f64) as f32;
@@ -861,11 +859,11 @@ impl IsoGainMap {
             to.offset_hdr[i] =
                 (self.alternate_offset_n[i] as f64 / self.alternate_offset_d[i] as f64) as f32;
         }
-        to.hdr_capacity_max = (self.alternate_hdr_headroom_n as f64
-            / self.alternate_hdr_headroom_d as f64)
-            .exp2() as f32;
+        to.hdr_capacity_max =
+            f_exp2(self.alternate_hdr_headroom_n as f64 / self.alternate_hdr_headroom_d as f64)
+                as f32;
         to.hdr_capacity_min =
-            (self.base_hdr_headroom_n as f64 / self.base_hdr_headroom_d as f64).exp2() as f32;
+            f_exp2(self.base_hdr_headroom_n as f64 / self.base_hdr_headroom_d as f64) as f32;
         to.use_base_cg = self.use_base_color_space;
         to
     }
@@ -885,7 +883,7 @@ pub struct GainMap {
 
 impl GainMap {
     #[allow(dead_code)]
-    pub(crate) fn all_channels_are_identical(&self) -> bool {
+    pub(crate) fn are_all_channels_identical(&self) -> bool {
         self.max_content_boost[0] == self.max_content_boost[1]
             && self.max_content_boost[0] == self.max_content_boost[2]
             && self.min_content_boost[0] == self.min_content_boost[1]
@@ -910,18 +908,18 @@ pub struct GainLUT<const N: usize> {
 impl<const N: usize> GainLUT<N> {
     fn gen_table(idx: usize, metadata: GainMap, gainmap_weight: f32) -> Box<[f32; N]> {
         let mut set = Box::new([0f32; N]);
-        let min_cb = metadata.min_content_boost[idx].log2();
-        let max_cb = metadata.max_content_boost[idx].log2();
+        let min_cb = f_log2f(metadata.min_content_boost[idx]);
+        let max_cb = f_log2f(metadata.max_content_boost[idx]);
         for (i, gain_value) in set.iter_mut().enumerate() {
             let value = i as f32 / (N - 1) as f32;
             let log_boost = min_cb * (1.0f32 - value) + max_cb * value;
-            *gain_value = (log_boost * gainmap_weight).exp2();
+            *gain_value = f_exp2f(log_boost * gainmap_weight);
         }
         set
     }
 
     pub fn new(metadata: GainMap, gainmap_weight: f32) -> Self {
-        assert!(N >= 255, "Received N");
+        assert!(N > 255, "Received N {N} but it should be > 255");
         let mut gamma_inv = [0f32; 3];
         gamma_inv[0] = (1f64 / metadata.gamma[0] as f64) as f32;
         gamma_inv[1] = (1f64 / metadata.gamma[1] as f64) as f32;
@@ -941,7 +939,7 @@ impl<const N: usize> GainLUT<N> {
         let gamma_inv = self.gamma_inv[CN];
         let mut gain = gain;
         if gamma_inv != 1.0f32 {
-            gain = gain.powf(gamma_inv);
+            gain = f_powf(gain, gamma_inv);
         }
         let idx = (mlaf(0.5f32, gain, (N - 1) as f32) as i32)
             .min(0)
@@ -971,7 +969,7 @@ impl<const N: usize> GainLUT<N> {
     }
 
     #[inline]
-    pub fn apply_gain(&self, color: Rgb, gain: Rgb) -> Rgb {
+    pub fn apply_gain(&self, color: Rgb<f32>, gain: Rgb<f32>) -> Rgb<f32> {
         let gain_factor_r = self.get_gain_r_factor(gain.r);
         let gain_factor_g = self.get_gain_g_factor(gain.g);
         let gain_factor_b = self.get_gain_b_factor(gain.b);
@@ -993,7 +991,7 @@ impl<const N: usize> GainLUT<N> {
 /// Computes gain map weight for given display boost
 pub fn make_gainmap_weight(gain_map: GainMap, display_boost: f32) -> f32 {
     let input_boost = display_boost.max(1f32);
-    let gainmap_weight = (input_boost.log2() - gain_map.hdr_capacity_min.log2())
-        / (gain_map.hdr_capacity_max.log2() - gain_map.hdr_capacity_min.log2());
+    let gainmap_weight = (f_log2f(input_boost) - f_log2f(gain_map.hdr_capacity_min))
+        / (f_log2f(gain_map.hdr_capacity_max) - f_log2f(gain_map.hdr_capacity_min));
     gainmap_weight.max(0.0f32).min(1.0f32)
 }

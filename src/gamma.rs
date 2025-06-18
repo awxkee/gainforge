@@ -135,12 +135,12 @@ pub(crate) fn bt1361_to_linear(gamma: f32) -> f32 {
 #[inline(always)]
 /// Pure gamma transfer function for gamma 2.2
 pub(crate) fn pure_gamma_function(x: f32, gamma: f32) -> f32 {
-    if x <= 0f32 {
-        0f32
-    } else if x >= 1f32 {
-        return 1f32;
+    if x <= 0. {
+        0.
+    } else if x >= 1. {
+        1.
     } else {
-        return x.powf(gamma);
+        x.powf(gamma)
     }
 }
 

@@ -255,7 +255,7 @@ pub use iso_gain_map::{
     MpfNumberOfImages, MpfTag, UhdrDirectory, UhdrDirectoryContainer, UhdrDirectoryRdf,
     UhdrDirectorySeq, UhdrItem, UhdrItemContainerLi, UhdrItemResource,
 };
-pub use mappers::ToneMappingMethod;
+pub use mappers::{AgxCustomLook, AgxLook, ToneMappingMethod};
 use num_traits::Num;
 pub use spline::FilmicSplineParameters;
 pub use tonemapper::{
