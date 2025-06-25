@@ -28,7 +28,8 @@
  */
 use crate::m_clamp;
 use crate::mappers::ToneMap;
-use moxcms::{powf, Rgb};
+use moxcms::Rgb;
+use pxfm::f_powf;
 
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq)]
 pub struct FilmicSplineParameters {
@@ -196,7 +197,7 @@ fn sqf(x: f32) -> f32 {
 }
 
 pub(crate) fn create_spline(p: FilmicSplineParameters) -> FilmicSpline {
-    let grey_display = powf(0.1845f32, 1.0f32 / (p.output_power));
+    let grey_display = f_powf(0.1845f32, 1.0f32 / (p.output_power));
     let hardness = p.output_power;
     // latitude in %
     let latitude = m_clamp(p.latitude, 0.0f32, 100.0f32) / 100.0f32;
@@ -210,11 +211,11 @@ pub(crate) fn create_spline(p: FilmicSplineParameters) -> FilmicSpline {
     let grey_log = p.black_point_source.abs() / dynamic_range;
     let white_log = 1.0f32; // assumes user set log as in the autotuner
 
-    let black_display = powf(
+    let black_display = f_powf(
         m_clamp(p.black_point_target, 0.0f32, p.grey_point_target) / 100.0f32,
         1.0f32 / (p.output_power),
     ); // in %;
-    let white_display = powf(
+    let white_display = f_powf(
         f32::max(p.white_point_target, p.grey_point_target) / 100.0f32,
         1.0f32 / (p.output_power),
     );
@@ -240,7 +241,7 @@ pub(crate) fn create_spline(p: FilmicSplineParameters) -> FilmicSpline {
     // f'(grey_log) = contrast * hardness * (contrast * grey_log + grey_display - (contrast * grey_log))^(hardness-1)
     //              = contrast * hardness * grey_display^(hardness-1)
     // f'(grey_log) = target_contrast <=> contrast = target_contrast / (hardness * grey_display^(hardness-1))
-    let mut contrast = slope / (hardness * powf(grey_display, hardness - 1.0f32));
+    let mut contrast = slope / (hardness * f_powf(grey_display, hardness - 1.0f32));
     let clamped_contrast = m_clamp(contrast, min_contrast, 100.0f32);
     contrast = clamped_contrast;
 
@@ -300,8 +301,8 @@ pub(crate) fn create_spline(p: FilmicSplineParameters) -> FilmicSpline {
 
     spline.saturation = 2.0f32 * p.saturation / 100.0f32 + 1.0f32;
 
-    spline.sigma_toe = powf(spline.latitude_min / 3.0f32, 2.0f32);
-    spline.sigma_shoulder = powf((1.0f32 - spline.latitude_max) / 3.0f32, 2.0f32);
+    spline.sigma_toe = f_powf(spline.latitude_min / 3.0f32, 2.0f32);
+    spline.sigma_shoulder = f_powf((1.0f32 - spline.latitude_max) / 3.0f32, 2.0f32);
 
     // let tl = spline.x[1];
     // let tl2 = tl * tl;

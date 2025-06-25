@@ -27,7 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::mlaf::mlaf;
-use moxcms::{f_exp2, f_exp2f, f_log2f, f_powf, Rgb};
+use moxcms::Rgb;
+use pxfm::{f_exp2, f_exp2f, f_log2f, f_powf};
 use quick_xml::Reader;
 
 #[repr(C)]
