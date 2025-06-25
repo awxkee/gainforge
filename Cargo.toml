@@ -2,7 +2,11 @@ workspace = { members = ["app"] }
 
 [package]
 name = "gainforge"
+<<<<<<< dev
 version = "0.3.5"
+=======
+version = "0.3.3"
+>>>>>>> main
 edition = "2021"
 description = "HDR tonemapping library"
 readme = "README.md"
