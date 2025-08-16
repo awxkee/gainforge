@@ -168,9 +168,9 @@ where
             .chunks_exact_mut(CN)
             .zip(linearized_content.chunks_exact(CN))
         {
-            let r = mlaf(0.5, src[0], scale_value).min((u16::MAX - 1) as f32) as u16;
-            let g = mlaf(0.5, src[1], scale_value).min((u16::MAX - 1) as f32) as u16;
-            let b = mlaf(0.5, src[2], scale_value).min((u16::MAX - 1) as f32) as u16;
+            let r = mlaf(0.5, src[0], scale_value).min(u16::MAX as f32) as u16;
+            let g = mlaf(0.5, src[1], scale_value).min(u16::MAX as f32) as u16;
+            let b = mlaf(0.5, src[2], scale_value).min(u16::MAX as f32) as u16;
             dst[0] = self.gamma_map_r[r as usize];
             dst[1] = self.gamma_map_g[g as usize];
             dst[2] = self.gamma_map_b[b as usize];
