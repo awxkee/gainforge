@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-image = { version = "0.25.5", features = ["avif-native"] }
+image = { version = "0.25", default-features = false, features = ["avif-native", "png", "jpeg"] }
 gainforge = { path = "../", features = ["uhdr"] }
 num-traits = "0.2.19"
 moxcms = "0.7"

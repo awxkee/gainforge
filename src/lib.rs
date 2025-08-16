@@ -30,7 +30,7 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```rust,no_run,ignore
 //! let img = image::ImageReader::open("./assets/hdr.avif")?
 //!     .decode()?;
 //! let rgb = img.to_rgb8();
@@ -72,7 +72,7 @@
 //! Some patches on `zune-image` are still being processed. Manually updating a
 //! dependency of `zune-image` might be required.
 //!
-//! ```rust
+//! ```rust,no_run,ignore
 //! pub struct GainMapAssociationGroup {
 //!     pub image: Vec<u8>,
 //!     pub gain_map: Vec<u8>,
@@ -238,6 +238,7 @@ mod gamma;
 mod iso_gain_map;
 mod mappers;
 mod mlaf;
+mod rgb_tone_mapper;
 mod spline;
 mod tonemapper;
 

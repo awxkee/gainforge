@@ -186,21 +186,21 @@ fn main() {
         //     saturation: Rgb::new(1.4, 1.4, 1.4),
         //     offset: Rgb::default(),
         // })),
-        // ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
-        ToneMappingMethod::Filmic,
-        // MappingColorSpace::Rgb(RgbToneMapperParameters {
-        //     gamut_clipping: GamutClipping::NoClip,
-        //     exposure: 1f32,
-        // }),
+        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
+        // ToneMappingMethod::Filmic,
+        MappingColorSpace::Rgb(RgbToneMapperParameters {
+            gamut_clipping: GamutClipping::NoClip,
+            exposure: 1f32,
+        }),
         // MappingColorSpace::YRgb(CommonToneMapperParameters {
         //     exposure: 1f32,
         //     gamut_clipping: GamutClipping::NoClip,
         // }),
-        MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
-            content_brightness: 2000.,
-            exposure: 1f32,
-            gamut_clipping: GamutClipping::NoClip,
-        }),
+        // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
+        //     content_brightness: 2000.,
+        //     exposure: 1f32,
+        //     gamut_clipping: GamutClipping::NoClip,
+        // }),
     )
     .unwrap();
     let dims = rgb.dimensions();
