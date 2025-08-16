@@ -34,11 +34,12 @@ use crate::mappers::{
     ReinhardToneMapper, ToneMap,
 };
 use crate::mlaf::mlaf;
+use crate::rgb_tone_mapper::{MatrixGamutClipping, MatrixStage, ToneMapperImpl};
 use crate::spline::{create_spline, SplineToneMapper};
-use crate::{m_clamp, ToneMappingMethod};
+use crate::ToneMappingMethod;
 use moxcms::{
-    adaption_matrix, filmlike_clip, CmsError, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab,
-    Rgb, Yrg, WHITE_POINT_D50, WHITE_POINT_D65,
+    adaption_matrix, filmlike_clip, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab, Rgb, Yrg,
+    WHITE_POINT_D50, WHITE_POINT_D65,
 };
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
@@ -154,91 +155,7 @@ impl Default for RgbToneMapperParameters {
 pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
 pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
 
-type SyncToneMap = dyn ToneMap + Send + Sync;
-
-struct MatrixStage<const CN: usize> {
-    pub(crate) gamut_color_conversion: Matrix3f,
-}
-
-impl<const CN: usize> InPlaceStage for MatrixStage<CN> {
-    fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
-        let c = self.gamut_color_conversion;
-        for chunk in dst.chunks_exact_mut(CN) {
-            let r = mlaf(
-                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
-                chunk[2],
-                c.v[0][2],
-            );
-            let g = mlaf(
-                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
-                chunk[2],
-                c.v[1][2],
-            );
-            let b = mlaf(
-                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
-                chunk[2],
-                c.v[2][2],
-            );
-
-            chunk[0] = m_clamp(r, 0.0, 1.0);
-            chunk[1] = m_clamp(g, 0.0, 1.0);
-            chunk[2] = m_clamp(b, 0.0, 1.0);
-        }
-        Ok(())
-    }
-}
-
-struct MatrixGamutClipping<const CN: usize> {
-    pub(crate) gamut_color_conversion: Matrix3f,
-}
-
-impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
-    fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
-        let c = self.gamut_color_conversion;
-        for chunk in dst.chunks_exact_mut(CN) {
-            let r = mlaf(
-                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
-                chunk[2],
-                c.v[0][2],
-            );
-            let g = mlaf(
-                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
-                chunk[2],
-                c.v[1][2],
-            );
-            let b = mlaf(
-                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
-                chunk[2],
-                c.v[2][2],
-            );
-
-            let mut rgb = Rgb::new(r, g, b);
-            if rgb.is_out_of_gamut() {
-                rgb = filmlike_clip(rgb);
-                chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
-                chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
-                chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
-            } else {
-                chunk[0] = m_clamp(r, 0.0, 1.0);
-                chunk[1] = m_clamp(g, 0.0, 1.0);
-                chunk[2] = m_clamp(b, 0.0, 1.0);
-            }
-        }
-        Ok(())
-    }
-}
-
-struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
-    linear_map_r: Box<[f32; N]>,
-    linear_map_g: Box<[f32; N]>,
-    linear_map_b: Box<[f32; N]>,
-    gamma_map_r: Box<[T; 65536]>,
-    gamma_map_g: Box<[T; 65536]>,
-    gamma_map_b: Box<[T; 65536]>,
-    im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
-    tone_map: Box<SyncToneMap>,
-    params: RgbToneMapperParameters,
-}
+pub(crate) type SyncToneMap = dyn ToneMap + Send + Sync;
 
 struct ToneMapperImplYrg<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize> {
     linear_map_r: Box<[f32; N]>,
@@ -288,81 +205,6 @@ pub trait ToneMapper<T: Copy + Default + Debug> {
     ///
     /// Lane length must be multiple of channels.
     fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError>;
-}
-
-impl<
-        T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
-        const N: usize,
-        const CN: usize,
-        const GAMMA_SIZE: usize,
-    > ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
-where
-    u32: AsPrimitive<T>,
-{
-    fn tonemap_lane(&self, src: &[T], dst: &mut [T]) -> Result<(), ForgeError> {
-        assert!(CN == 3 || CN == 4);
-        if src.len() != dst.len() {
-            return Err(ForgeError::LaneSizeMismatch);
-        }
-        if src.len() % CN != 0 {
-            return Err(ForgeError::LaneMultipleOfChannels);
-        }
-        assert_eq!(src.len(), dst.len());
-        let mut linearized_content = vec![0f32; src.len()];
-        for (src, dst) in src
-            .chunks_exact(CN)
-            .zip(linearized_content.chunks_exact_mut(CN))
-        {
-            dst[0] = self.linear_map_r[src[0].as_()] * self.params.exposure;
-            dst[1] = self.linear_map_g[src[1].as_()] * self.params.exposure;
-            dst[2] = self.linear_map_b[src[2].as_()] * self.params.exposure;
-            if CN == 4 {
-                dst[3] = f32::from_bits(src[3].as_() as u32);
-            }
-        }
-
-        self.tonemap_linearized_lane(&mut linearized_content)?;
-
-        if let Some(c) = &self.im_stage {
-            c.transform(&mut linearized_content)
-                .map_err(|_| ForgeError::UnknownError)?;
-        } else {
-            for chunk in linearized_content.chunks_exact_mut(CN) {
-                let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
-                chunk[0] = rgb.r.min(1.).max(0.);
-                chunk[1] = rgb.g.min(1.).max(0.);
-                chunk[2] = rgb.b.min(1.).max(0.);
-            }
-        }
-
-        let scale_value = (GAMMA_SIZE - 1) as f32;
-
-        for (dst, src) in dst
-            .chunks_exact_mut(CN)
-            .zip(linearized_content.chunks_exact(CN))
-        {
-            let r = mlaf(0.5f32, src[0], scale_value) as u16;
-            let g = mlaf(0.5f32, src[1], scale_value) as u16;
-            let b = mlaf(0.5f32, src[2], scale_value) as u16;
-            dst[0] = self.gamma_map_r[r as usize];
-            dst[1] = self.gamma_map_g[g as usize];
-            dst[2] = self.gamma_map_b[b as usize];
-            if CN == 4 {
-                dst[3] = src[3].to_bits().as_();
-            }
-        }
-
-        Ok(())
-    }
-
-    fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError> {
-        assert!(CN == 3 || CN == 4);
-        if in_place.len() % CN != 0 {
-            return Err(ForgeError::LaneMultipleOfChannels);
-        }
-        self.tone_map.process_lane(in_place);
-        Ok(())
-    }
 }
 
 impl<

@@ -29,6 +29,7 @@
 #![allow(clippy::excessive_precision)]
 
 use moxcms::TransferCharacteristics;
+use pxfm::{f_expf, f_logf, f_powf};
 
 #[inline(always)]
 /// Linear transfer function for sRGB
@@ -106,11 +107,11 @@ pub(crate) fn bt1361_from_linear(linear: f32) -> f32 {
     if linear < -0.25 {
         -0.25
     } else if linear < 0.0 {
-        -0.27482420670236 * f32::powf(-4.0 * linear, 0.45) + 0.02482420670236
+        -0.27482420670236 * f_powf(-4.0 * linear, 0.45) + 0.02482420670236
     } else if linear < 0.018053968510807 {
         linear * 4.5
     } else if linear < 1.0 {
-        1.09929682680944 * f32::powf(linear, 0.45) - 0.09929682680944
+        1.09929682680944 * f_powf(linear, 0.45) - 0.09929682680944
     } else {
         1.0
     }
@@ -122,11 +123,11 @@ pub(crate) fn bt1361_to_linear(gamma: f32) -> f32 {
     if gamma < -0.25 {
         -0.25
     } else if gamma < 0.0 {
-        f32::powf((gamma - 0.02482420670236) / -0.27482420670236, 1.0 / 0.45) / -4.0
+        f_powf((gamma - 0.02482420670236) / -0.27482420670236, 1.0 / 0.45) / -4.0
     } else if gamma < 4.5 * 0.018053968510807 {
         gamma / 4.5
     } else if gamma < 1.0 {
-        f32::powf((gamma + 0.09929682680944) / 1.09929682680944, 1.0 / 0.45)
+        f_powf((gamma + 0.09929682680944) / 1.09929682680944, 1.0 / 0.45)
     } else {
         1.0
     }
@@ -140,7 +141,7 @@ pub(crate) fn pure_gamma_function(x: f32, gamma: f32) -> f32 {
     } else if x >= 1. {
         1.
     } else {
-        x.powf(gamma)
+        f_powf(x, gamma)
     }
 }
 
@@ -172,10 +173,10 @@ pub(crate) fn gamma2p8_to_linear(gamma: f32) -> f32 {
 /// Linear transfer function for PQ
 pub(crate) fn pq_to_linear(gamma: f32) -> f32 {
     if gamma > 0.0 {
-        let pow_gamma = f32::powf(gamma, 1.0 / 78.84375);
+        let pow_gamma = f_powf(gamma, 1.0 / 78.84375);
         let num = (pow_gamma - 0.8359375).max(0.);
         let den = (18.8515625 - 18.6875 * pow_gamma).max(f32::MIN);
-        let linear = f32::powf(num / den, 1.0 / 0.1593017578125);
+        let linear = f_powf(num / den, 1.0 / 0.1593017578125);
         // Scale so that SDR white is 1.0 (extended SDR).
         const PQ_MAX_NITS: f32 = 10000.;
         const SDR_WHITE_NITS: f32 = 203.;
@@ -195,10 +196,10 @@ pub(crate) fn pq_from_linear(linear: f32) -> f32 {
     if linear > 0.0 {
         // Scale from extended SDR range to [0.0, 1.0].
         let linear = (linear * SDR_REFERENCE_DISPLAY / PQ_MAX_NITS).clamp(0., 1.);
-        let pow_linear = f32::powf(linear, 0.1593017578125);
+        let pow_linear = f_powf(linear, 0.1593017578125);
         let num = 0.1640625 * pow_linear - 0.1640625;
         let den = 1.0 + 18.6875 * pow_linear;
-        f32::powf(1.0 + num / den, 78.84375)
+        f_powf(1.0 + num / den, 78.84375)
     } else {
         0.0
     }
@@ -211,10 +212,10 @@ pub(crate) fn hlg_to_linear(gamma: f32) -> f32 {
         return 0.0;
     }
     let linear = if gamma <= 0.5 {
-        f32::powf((gamma * gamma) * (1.0 / 3.0), 1.2)
+        f_powf((gamma * gamma) * (1.0 / 3.0), 1.2)
     } else {
-        f32::powf(
-            (f32::exp((gamma - 0.55991073) / 0.17883277) + 0.28466892) / 12.0,
+        f_powf(
+            (f_expf((gamma - 0.55991073) / 0.17883277) + 0.28466892) / 12.0,
             1.2,
         )
     };
@@ -230,13 +231,13 @@ pub(crate) fn hlg_from_linear(linear: f32) -> f32 {
     // Scale from extended SDR range to [0.0, 1.0].
     let mut linear = (linear * (SDR_WHITE_NITS / HLG_WHITE_NITS)).clamp(0., 1.);
     // Inverse OOTF followed by OETF see Table 5 and Note 5i in ITU-R BT.2100-2 page 7-8.
-    linear = f32::powf(linear, 1.0 / 1.2);
+    linear = f_powf(linear, 1.0 / 1.2);
     if linear < 0.0 {
         0.0
     } else if linear <= (1.0 / 12.0) {
         f32::sqrt(3.0 * linear)
     } else {
-        0.17883277 * f32::ln(12.0 * linear - 0.28466892) + 0.55991073
+        0.17883277 * f_logf(12.0 * linear - 0.28466892) + 0.55991073
     }
 }
 

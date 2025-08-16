@@ -2,7 +2,7 @@ workspace = { members = ["app"] }
 
 [package]
 name = "gainforge"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 description = "HDR tonemapping library"
 readme = "README.md"
@@ -20,7 +20,7 @@ rust-version = "1.82.0"
 moxcms = "0.7"
 num-traits = "0.2"
 pxfm = "^0.1.1"
-quick-xml = { version = "0.37", features = ["serde", "serde-types", "serialize"], optional = true }
+quick-xml = { version = "0.38", features = ["serde", "serde-types", "serialize"], optional = true }
 serde = { version = "^1.0.219", features = ["derive"], optional = true }
 
 [features]
