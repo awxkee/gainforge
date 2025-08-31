@@ -26,7 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::mlaf::mlaf;
+use crate::mlaf::{fmla, mlaf};
 use crate::spline::FilmicSplineParameters;
 use crate::GainHdrMetadata;
 use moxcms::{FusedLog2, FusedPow, Matrix3f, Rgb, Vector3f};
@@ -117,9 +117,11 @@ impl<const CN: usize> Rec2408ToneMapper<CN> {
 impl<const CN: usize> ToneMap for Rec2408ToneMapper<CN> {
     fn process_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
-            let luma = chunk[0] * self.primaries[0]
-                + chunk[1] * self.primaries[1]
-                + chunk[2] * self.primaries[2];
+            let luma = fmla(
+                chunk[0],
+                self.primaries[0],
+                fmla(chunk[1], self.primaries[1], chunk[2] * self.primaries[2]),
+            );
             if luma == 0. {
                 chunk[0] = 0.;
                 chunk[1] = 0.;
@@ -150,7 +152,7 @@ impl<const CN: usize> ToneMap for Rec2408ToneMapper<CN> {
 pub(crate) struct FilmicToneMapper<const CN: usize> {}
 
 #[inline(always)]
-const fn uncharted2_tonemap_partial(x: f32) -> f32 {
+const fn c_uncharted2_tonemap_partial(x: f32) -> f32 {
     const A: f32 = 0.15f32;
     const B: f32 = 0.50f32;
     const C: f32 = 0.10f32;
@@ -160,6 +162,21 @@ const fn uncharted2_tonemap_partial(x: f32) -> f32 {
     ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F
 }
 
+#[inline(always)]
+fn uncharted2_tonemap_partial(x: f32) -> f32 {
+    const A: f32 = 0.15f32;
+    const B: f32 = 0.50f32;
+    const C: f32 = 0.10f32;
+    const D: f32 = 0.20f32;
+    const E: f32 = 0.02f32;
+    const F: f32 = 0.30f32;
+    let r0 = fmla(A, x, C * B);
+    let r1 = fmla(A, x, B);
+    let r2 = fmla(x, r0, D * E);
+    let r3 = fmla(x, r1, D * F);
+    (r2 / r3) - E / F
+}
+
 impl<const CN: usize> FilmicToneMapper<CN> {
     #[inline(always)]
     fn uncharted2_filmic(&self, v: f32) -> f32 {
@@ -167,7 +184,7 @@ impl<const CN: usize> FilmicToneMapper<CN> {
         let curr = uncharted2_tonemap_partial(v * exposure_bias);
 
         const W: f32 = 11.2f32;
-        const W_S: f32 = 1.0f32 / uncharted2_tonemap_partial(W);
+        const W_S: f32 = 1.0f32 / c_uncharted2_tonemap_partial(W);
         curr * W_S
     }
 }
@@ -292,9 +309,11 @@ pub(crate) struct ExtendedReinhardToneMapper<const CN: usize> {
 impl<const CN: usize> ToneMap for ExtendedReinhardToneMapper<CN> {
     fn process_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
-            let luma = chunk[0] * self.primaries[0]
-                + chunk[1] * self.primaries[1]
-                + chunk[2] * self.primaries[2];
+            let luma = fmla(
+                chunk[0],
+                self.primaries[0],
+                fmla(chunk[1], self.primaries[1], chunk[2] * self.primaries[2]),
+            );
             if luma == 0. {
                 chunk[0] = 0.;
                 chunk[1] = 0.;
@@ -334,9 +353,11 @@ pub(crate) struct ReinhardJodieToneMapper<const CN: usize> {
 impl<const CN: usize> ToneMap for ReinhardJodieToneMapper<CN> {
     fn process_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
-            let luma = chunk[0] * self.primaries[0]
-                + chunk[1] * self.primaries[1]
-                + chunk[2] * self.primaries[2];
+            let luma = fmla(
+                chunk[0],
+                self.primaries[0],
+                fmla(chunk[1], self.primaries[1], chunk[2] * self.primaries[2]),
+            );
             if luma == 0. {
                 chunk[0] = 0.;
                 chunk[1] = 0.;
