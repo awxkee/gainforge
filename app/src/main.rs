@@ -187,7 +187,7 @@ fn main() {
         //     offset: Rgb::default(),
         // })),
         ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
-        // ToneMappingMethod::Filmic,
+        // ToneMappingMethod::ExtendedReinhard,
         MappingColorSpace::Rgb(RgbToneMapperParameters {
             gamut_clipping: GamutClipping::NoClip,
             exposure: 1f32,
