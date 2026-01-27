@@ -171,16 +171,27 @@ pub(crate) fn gamma2p8_to_linear(gamma: f32) -> f32 {
 
 #[inline(always)]
 /// Linear transfer function for PQ
-pub(crate) fn pq_to_linear(gamma: f32) -> f32 {
+pub(crate) fn pq_to_linear(gamma: f32, reference_display: f32) -> f32 {
     if gamma > 0.0 {
         let pow_gamma = f_powf(gamma, 1.0 / 78.84375);
         let num = (pow_gamma - 0.8359375).max(0.);
         let den = (18.8515625 - 18.6875 * pow_gamma).max(f32::MIN);
         let linear = f_powf(num / den, 1.0 / 0.1593017578125);
         // Scale so that SDR white is 1.0 (extended SDR).
-        const PQ_MAX_NITS: f32 = 10000.;
-        const SDR_WHITE_NITS: f32 = 203.;
-        linear * PQ_MAX_NITS / SDR_WHITE_NITS
+        linear * reference_display
+    } else {
+        0.0
+    }
+}
+
+#[inline(always)]
+/// Linear transfer function for PQ
+pub(crate) fn pq_to_linear_unscaled(gamma: f32) -> f32 {
+    if gamma > 0.0 {
+        let pow_gamma = f_powf(gamma, 1.0 / 78.84375);
+        let num = (pow_gamma - 0.8359375).max(0.);
+        let den = (18.8515625 - 18.6875 * pow_gamma).max(f32::MIN);
+        f_powf(num / den, 1.0 / 0.1593017578125)
     } else {
         0.0
     }
@@ -195,7 +206,22 @@ const HLG_WHITE_NITS: f32 = 1000.;
 pub(crate) fn pq_from_linear(linear: f32) -> f32 {
     if linear > 0.0 {
         // Scale from extended SDR range to [0.0, 1.0].
-        let linear = (linear * SDR_REFERENCE_DISPLAY / PQ_MAX_NITS).clamp(0., 1.);
+        let linear = (linear * (SDR_REFERENCE_DISPLAY / PQ_MAX_NITS)).clamp(0., 1.);
+        let pow_linear = f_powf(linear, 0.1593017578125);
+        let num = 0.1640625 * pow_linear - 0.1640625;
+        let den = 1.0 + 18.6875 * pow_linear;
+        f_powf(1.0 + num / den, 78.84375)
+    } else {
+        0.0
+    }
+}
+
+#[inline(always)]
+/// Gamma transfer function for PQ
+pub(crate) fn pq_from_linear_with_reference_display(linear: f32, reference_display: f32) -> f32 {
+    if linear > 0.0 {
+        // Scale from extended SDR range to [0.0, 1.0].
+        let linear = (linear * (reference_display * (1. / PQ_MAX_NITS))).clamp(0., 1.);
         let pow_linear = f_powf(linear, 0.1593017578125);
         let num = 0.1640625 * pow_linear - 0.1640625;
         let den = 1.0 + 18.6875 * pow_linear;
@@ -286,7 +312,7 @@ impl From<u8> for TransferFunction {
 
 impl TransferFunction {
     #[inline(always)]
-    pub fn linearize(&self, v: f32) -> f32 {
+    pub fn linearize(&self, v: f32, reference_display: f32) -> f32 {
         match self {
             TransferFunction::Srgb => srgb_to_linear(v),
             TransferFunction::Rec709 => rec709_to_linear(v),
@@ -296,7 +322,7 @@ impl TransferFunction {
             TransferFunction::Bt1361 => bt1361_to_linear(v),
             TransferFunction::Linear => trc_linear(v),
             TransferFunction::HybridLogGamma => hlg_to_linear(v),
-            TransferFunction::PerceptualQuantizer => pq_to_linear(v),
+            TransferFunction::PerceptualQuantizer => pq_to_linear(v, reference_display),
         }
     }
 
@@ -332,20 +358,24 @@ impl TransferFunction {
         table
     }
 
-    pub(crate) fn generate_linear_table_u16(&self, bit_depth: usize) -> Box<[f32; 65536]> {
+    pub(crate) fn generate_linear_table_u16(
+        &self,
+        bit_depth: usize,
+        reference_display: f32,
+    ) -> Box<[f32; 65536]> {
         let mut table = Box::new([0.; 65536]);
         let max_bp = (1 << bit_depth as u32) - 1;
         let max_scale = 1f32 / max_bp as f32;
         for (i, value) in table.iter_mut().take(max_bp).enumerate() {
-            *value = self.linearize(i as f32 * max_scale);
+            *value = self.linearize(i as f32 * max_scale, reference_display);
         }
         table
     }
 
-    pub(crate) fn generate_linear_table_u8(&self) -> Box<[f32; 256]> {
+    pub(crate) fn generate_linear_table_u8(&self, reference_display: f32) -> Box<[f32; 256]> {
         let mut table = Box::new([0.; 256]);
         for (i, value) in table.iter_mut().enumerate() {
-            *value = self.linearize(i as f32 / 255.);
+            *value = self.linearize(i as f32 * (1. / 255.), reference_display);
         }
         table
     }

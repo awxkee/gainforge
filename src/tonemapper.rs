@@ -31,18 +31,16 @@ use crate::gamma::trc_from_cicp;
 use crate::mappers::{
     AcesToneMapper, AgxDefault, AgxGolden, AgxLook, AgxPunchy, AgxToneMapper, ClampToneMapper,
     ExtendedReinhardToneMapper, FilmicToneMapper, Rec2408ToneMapper, ReinhardJodieToneMapper,
-    ReinhardToneMapper, ToneMap,
+    ReinhardToneMapper, ToneMap, TunedReinhardToneMapper,
 };
 use crate::mlaf::mlaf;
 use crate::rgb_tone_mapper::{MatrixGamutClipping, MatrixStage, ToneMapperImpl};
 use crate::spline::{create_spline, SplineToneMapper};
 use crate::ToneMappingMethod;
-use moxcms::{
-    adaption_matrix, filmlike_clip, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab, Rgb, Yrg,
-    WHITE_POINT_D50, WHITE_POINT_D65,
-};
+use moxcms::{filmlike_clip, ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Oklab, Rgb, Yrg};
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Defines gamut clipping mode
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -79,7 +77,7 @@ pub enum MappingColorSpace {
     ///   lightness colour spaces (requiring a colour space change).
     ///
     /// Algorithm here do not perform gamut mapping.
-    YRgb(CommonToneMapperParameters),
+    Yrg(CommonToneMapperParameters),
     /// Oklab perceptual colorspace.
     ///
     /// It exists more for *experiments* how does it look like.
@@ -166,7 +164,7 @@ struct ToneMapperImplYrg<T: Copy, const N: usize, const CN: usize, const GAMMA_S
     gamma_map_b: Box<[T; 65536]>,
     to_xyz: Matrix3f,
     to_rgb: Matrix3f,
-    tone_map: Box<SyncToneMap>,
+    tone_map: Arc<SyncToneMap>,
     parameters: CommonToneMapperParameters,
 }
 
@@ -177,7 +175,7 @@ struct ToneMapperImplOklab<T: Copy, const N: usize, const CN: usize, const GAMMA
     gamma_map_r: Box<[T; 65536]>,
     gamma_map_g: Box<[T; 65536]>,
     gamma_map_b: Box<[T; 65536]>,
-    tone_map: Box<SyncToneMap>,
+    tone_map: Arc<SyncToneMap>,
     parameters: CommonToneMapperParameters,
 }
 
@@ -190,7 +188,7 @@ struct ToneMapperImplJzazbz<T: Copy, const N: usize, const CN: usize, const GAMM
     gamma_map_b: Box<[T; 65536]>,
     to_xyz: Matrix3f,
     to_rgb: Matrix3f,
-    tone_map: Box<SyncToneMap>,
+    tone_map: Arc<SyncToneMap>,
     parameters: JzazbzToneMapperParameters,
 }
 
@@ -526,13 +524,21 @@ fn create_tone_mapper_u8<const CN: usize>(
     output_color_space: &ColorProfile,
     method: ToneMappingMethod,
     working_color_space: MappingColorSpace,
-) -> Result<Box<SyncToneMapper8Bit>, ForgeError> {
+) -> Result<Arc<SyncToneMapper8Bit>, ForgeError> {
     let (linear_table_r, linear_table_g, linear_table_b);
     if let Some(trc) = input_color_space
         .cicp
         .and_then(|x| trc_from_cicp(x.transfer_characteristics))
     {
-        linear_table_r = trc.generate_linear_table_u8();
+        const PQ_MAX_NITS: f32 = 10000.;
+        const SDR_WHITE_NITS: f32 = 203.;
+        let reference_display = PQ_MAX_NITS / SDR_WHITE_NITS;
+        linear_table_r =
+            trc.generate_linear_table_u8(if matches!(method, ToneMappingMethod::Itu2408(_)) {
+                1.
+            } else {
+                reference_display
+            });
         linear_table_g = linear_table_r.clone();
         linear_table_b = linear_table_g.clone();
     } else {
@@ -582,7 +588,7 @@ fn create_tone_mapper_u8<const CN: usize>(
                     })
                 };
 
-            Ok(Box::new(ToneMapperImpl::<u8, 256, CN, 8192> {
+            Ok(Arc::new(ToneMapperImpl::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -594,17 +600,15 @@ fn create_tone_mapper_u8<const CN: usize>(
                 params,
             }))
         }
-        MappingColorSpace::YRgb(params) => {
-            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-
+        MappingColorSpace::Yrg(params) => {
             // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
-            let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let mut to_xyz = input_color_space.rgb_to_xyz_matrix().to_f32();
             to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
             let output_d50 = output_color_space.rgb_to_xyz_matrix().to_f32();
-            let mut to_rgb = output_d50.inverse() * d50_to_d65;
+            let mut to_rgb = output_d50.inverse();
             to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
 
-            Ok(Box::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
+            Ok(Arc::new(ToneMapperImplYrg::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -618,7 +622,7 @@ fn create_tone_mapper_u8<const CN: usize>(
             }))
         }
         MappingColorSpace::Oklab(params) => {
-            Ok(Box::new(ToneMapperImplOklab::<u8, 256, CN, 8192> {
+            Ok(Arc::new(ToneMapperImplOklab::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -630,14 +634,12 @@ fn create_tone_mapper_u8<const CN: usize>(
             }))
         }
         MappingColorSpace::Jzazbz(brightness) => {
-            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-
             // We need to adapt PCS D50 to XYZ with D65 white point first.
-            let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_xyz = input_color_space.rgb_to_xyz_matrix().to_f32();
             let output_d65 = output_color_space.rgb_to_xyz_matrix().to_f32();
-            let to_rgb = output_d65.inverse() * d50_to_d65;
+            let to_rgb = output_d65.inverse();
 
-            Ok(Box::new(ToneMapperImplJzazbz::<u8, 256, CN, 8192> {
+            Ok(Arc::new(ToneMapperImplJzazbz::<u8, 256, CN, 8192> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -658,14 +660,24 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
     output_color_space: &ColorProfile,
     method: ToneMappingMethod,
     working_color_space: MappingColorSpace,
-) -> Result<Box<SyncToneMapper16Bit>, ForgeError> {
+) -> Result<Arc<SyncToneMapper16Bit>, ForgeError> {
     assert!((8..=16).contains(&BIT_DEPTH));
     let (linear_table_r, linear_table_g, linear_table_b);
     if let Some(trc) = input_color_space
         .cicp
         .and_then(|x| trc_from_cicp(x.transfer_characteristics))
     {
-        linear_table_r = trc.generate_linear_table_u16(BIT_DEPTH);
+        const PQ_MAX_NITS: f32 = 10000.;
+        const SDR_WHITE_NITS: f32 = 203.;
+        let reference_display = PQ_MAX_NITS / SDR_WHITE_NITS;
+        linear_table_r = trc.generate_linear_table_u16(
+            BIT_DEPTH,
+            if matches!(method, ToneMappingMethod::Itu2408(_)) {
+                1.
+            } else {
+                reference_display
+            },
+        );
         linear_table_g = linear_table_r.clone();
         linear_table_b = linear_table_g.clone();
     } else {
@@ -715,7 +727,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                     })
                 };
 
-            Ok(Box::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
+            Ok(Arc::new(ToneMapperImpl::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -727,17 +739,15 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
                 params,
             }))
         }
-        MappingColorSpace::YRgb(params) => {
-            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-
+        MappingColorSpace::Yrg(params) => {
             // We need to adapt PCS D50 to CIE XYZ 2006 with D65 white point first.
-            let mut to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let mut to_xyz = input_color_space.rgb_to_xyz_matrix().to_f32();
             to_xyz = to_xyz.mul_row::<1>(1.05785528f32);
             let output_d50 = output_color_space.rgb_to_xyz_matrix().to_f32();
-            let mut to_rgb = output_d50.inverse() * d50_to_d65;
+            let mut to_rgb = output_d50.inverse();
             to_rgb = to_rgb.mul_row::<1>(1. / 1.05785528f32);
 
-            Ok(Box::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
+            Ok(Arc::new(ToneMapperImplYrg::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -751,7 +761,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             }))
         }
         MappingColorSpace::Oklab(params) => {
-            Ok(Box::new(ToneMapperImplOklab::<u16, 65536, CN, 65536> {
+            Ok(Arc::new(ToneMapperImplOklab::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -763,14 +773,12 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             }))
         }
         MappingColorSpace::Jzazbz(brightness) => {
-            let d50_to_d65 = adaption_matrix(WHITE_POINT_D50.to_xyz(), WHITE_POINT_D65.to_xyz());
-
             // We need to adapt PCS D50 to XYZ with D65 white point first.
-            let to_xyz = d50_to_d65 * input_color_space.rgb_to_xyz_matrix().to_f32();
+            let to_xyz = input_color_space.rgb_to_xyz_matrix().to_f32();
             let output_d65 = output_color_space.rgb_to_xyz_matrix().to_f32();
-            let to_rgb = output_d65.inverse() * d50_to_d65;
+            let to_rgb = output_d65.inverse();
 
-            Ok(Box::new(ToneMapperImplJzazbz::<u16, 65536, CN, 65536> {
+            Ok(Arc::new(ToneMapperImplJzazbz::<u16, 65536, CN, 65536> {
                 linear_map_r: linear_table_r,
                 linear_map_g: linear_table_g,
                 linear_map_b: linear_table_b,
@@ -789,47 +797,52 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
 fn make_mapper<const CN: usize>(
     input_color_space: &ColorProfile,
     method: ToneMappingMethod,
-) -> Box<SyncToneMap> {
+) -> Arc<SyncToneMap> {
     let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
     let luma_primaries: [f32; 3] = primaries.v[1];
-    let tone_map: Box<SyncToneMap> = match method {
-        ToneMappingMethod::Rec2408(data) => Box::new(Rec2408ToneMapper::<CN>::new(
+    let tone_map: Arc<SyncToneMap> = match method {
+        ToneMappingMethod::Itu2408(data) => Arc::new(Rec2408ToneMapper::<CN>::new(
+            data.content_max_brightness,
+            data.display_max_brightness,
+            luma_primaries,
+        )),
+        ToneMappingMethod::TunedReinhard(data) => Arc::new(TunedReinhardToneMapper::<CN>::new(
             data.content_max_brightness,
             data.display_max_brightness,
             203f32,
             luma_primaries,
         )),
-        ToneMappingMethod::Filmic => Box::new(FilmicToneMapper::<CN>::default()),
-        ToneMappingMethod::Aces => Box::new(AcesToneMapper::<CN>::default()),
-        ToneMappingMethod::ExtendedReinhard => Box::new(ExtendedReinhardToneMapper::<CN> {
+        ToneMappingMethod::Filmic => Arc::new(FilmicToneMapper::<CN>::default()),
+        ToneMappingMethod::Aces => Arc::new(AcesToneMapper::<CN>::default()),
+        ToneMappingMethod::ExtendedReinhard => Arc::new(ExtendedReinhardToneMapper::<CN> {
             primaries: luma_primaries,
         }),
-        ToneMappingMethod::ReinhardJodie => Box::new(ReinhardJodieToneMapper::<CN> {
+        ToneMappingMethod::ReinhardJodie => Arc::new(ReinhardJodieToneMapper::<CN> {
             primaries: luma_primaries,
         }),
-        ToneMappingMethod::Reinhard => Box::new(ReinhardToneMapper::<CN>::default()),
-        ToneMappingMethod::Clamp => Box::new(ClampToneMapper::<CN>::default()),
+        ToneMappingMethod::Reinhard => Arc::new(ReinhardToneMapper::<CN>::default()),
+        ToneMappingMethod::Clamp => Arc::new(ClampToneMapper::<CN>::default()),
         ToneMappingMethod::FilmicSpline(params) => {
             let spline = create_spline(params);
-            Box::new(SplineToneMapper::<CN> {
+            Arc::new(SplineToneMapper::<CN> {
                 spline,
                 primaries: luma_primaries,
             })
         }
         ToneMappingMethod::Agx(look) => match look {
-            AgxLook::Agx => Box::new(AgxToneMapper::<CN> {
+            AgxLook::Agx => Arc::new(AgxToneMapper::<CN> {
                 primaries: luma_primaries,
                 agx_custom_look: AgxDefault::custom_look(),
             }),
-            AgxLook::Punchy => Box::new(AgxToneMapper::<CN> {
+            AgxLook::Punchy => Arc::new(AgxToneMapper::<CN> {
                 primaries: luma_primaries,
                 agx_custom_look: AgxPunchy::custom_look(),
             }),
-            AgxLook::Golden => Box::new(AgxToneMapper::<CN> {
+            AgxLook::Golden => Arc::new(AgxToneMapper::<CN> {
                 primaries: luma_primaries,
                 agx_custom_look: AgxGolden::custom_look(),
             }),
-            AgxLook::Custom(look) => Box::new(AgxToneMapper::<CN> {
+            AgxLook::Custom(look) => Arc::new(AgxToneMapper::<CN> {
                 primaries: luma_primaries,
                 agx_custom_look: look,
             }),
@@ -851,7 +864,7 @@ macro_rules! define8 {
             output_color_space: &ColorProfile,
             method: ToneMappingMethod,
             working_color_space: MappingColorSpace,
-        ) -> Result<Box<SyncToneMapper8Bit>, ForgeError> {
+        ) -> Result<Arc<SyncToneMapper8Bit>, ForgeError> {
             create_tone_mapper_u8::<$cn>(
                 input_color_space,
                 output_color_space,
@@ -878,7 +891,7 @@ macro_rules! define16 {
             output_color_space: &ColorProfile,
             method: ToneMappingMethod,
             working_color_space: MappingColorSpace,
-        ) -> Result<Box<SyncToneMapper16Bit>, ForgeError> {
+        ) -> Result<Arc<SyncToneMapper16Bit>, ForgeError> {
             create_tone_mapper_u16::<$cn, $bp>(
                 input_color_space,
                 output_color_space,

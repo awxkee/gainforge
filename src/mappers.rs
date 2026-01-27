@@ -26,6 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+use crate::gamma::{pq_from_linear_with_reference_display, pq_to_linear_unscaled};
 use crate::mlaf::{fmla, mlaf};
 use crate::spline::FilmicSplineParameters;
 use crate::GainHdrMetadata;
@@ -49,8 +50,10 @@ pub enum AgxLook {
 /// many of the supported tone mapping methods.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum ToneMappingMethod {
+    /// Fast and accurate tuned Reinhard, preferred
+    TunedReinhard(GainHdrMetadata),
     /// ITU-R broadcasting TV [recommendation 2408](https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BT.2408-4-2021-PDF-E.pdf)
-    Rec2408(GainHdrMetadata),
+    Itu2408(GainHdrMetadata),
     /// The ['Uncharted 2' filmic](https://www.gdcvault.com/play/1012351/Uncharted-2-HDR)
     /// tone mapping method.
     Filmic,
@@ -84,12 +87,146 @@ pub(crate) trait ToneMap {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Rec2408ToneMapper<const CN: usize> {
+    content_max_brightness: f32,
+    display_max_brightness: f32,
+    primaries: [f32; 3],
+    content_min_luminance: f32,
+    content_luminance_range: f32,
+    inv_pq_mastering_range: f32,
+    min_lum: f32,
+    max_lum: f32,
+    ks: f32,
+    inv_one_minus_ks: f32,
+    one_minus_ks: f32,
+    normalizer: f32,
+    inv_target_peak: f32,
+}
+
+impl<const CN: usize> Rec2408ToneMapper<CN> {
+    pub(crate) fn new(
+        content_max_brightness: f32,
+        display_max_brightness: f32,
+        primaries: [f32; 3],
+    ) -> Self {
+        let content_luminance_black = pq_from_linear_with_reference_display(0., 10000.0);
+        let content_luminance_white =
+            pq_from_linear_with_reference_display(content_max_brightness / 10000.0, 10000.0);
+        let content_luminance_range = content_luminance_white - content_luminance_black;
+        let inv_pq_mastering_range = 1.0 / content_luminance_range;
+
+        let min_lum = (pq_from_linear_with_reference_display(0., 10000.0)
+            - content_luminance_black)
+            * inv_pq_mastering_range;
+        let max_lum =
+            (pq_from_linear_with_reference_display(display_max_brightness / 10000.0, 10000.0)
+                - content_luminance_black)
+                * inv_pq_mastering_range;
+        let ks = 1.5 * max_lum - 0.5;
+
+        Self {
+            content_max_brightness,
+            display_max_brightness,
+            primaries,
+            content_min_luminance: content_luminance_black,
+            content_luminance_range,
+            inv_pq_mastering_range,
+            min_lum,
+            max_lum,
+            ks,
+            inv_one_minus_ks: 1.0 / (1.0 - ks).max(1e-6),
+            one_minus_ks: 1.0 - ks,
+            normalizer: content_max_brightness / display_max_brightness,
+            inv_target_peak: 1.0 / display_max_brightness,
+        }
+    }
+}
+
+impl<const CN: usize> Rec2408ToneMapper<CN> {
+    #[inline(always)]
+    fn t(&self, a: f32) -> f32 {
+        (a - self.ks) * self.inv_one_minus_ks
+    }
+
+    #[inline]
+    fn hermite_spline(&self, b: f32) -> f32 {
+        let t_b = self.t(b);
+        let t_b_2 = t_b * t_b;
+        let t_b_3 = t_b_2 * t_b;
+        fmla(2.0, t_b_3, fmla(-3.0, t_b_2, 1.0)) * self.ks
+            + fmla(-2.0, t_b_2, t_b_3 + t_b) * self.one_minus_ks
+            + fmla(-2.0, t_b_3, 3.0 * t_b_2) * self.max_lum
+    }
+
+    #[inline(always)]
+    fn make_luma_scale(&self, luma: f32) -> f32 {
+        let s = pq_from_linear_with_reference_display(luma / 10000.0, 10000.0);
+        let normalized_pq =
+            ((s - self.content_min_luminance) * self.inv_pq_mastering_range).min(1.0);
+
+        let e2 = if normalized_pq < self.ks {
+            normalized_pq
+        } else {
+            self.hermite_spline(normalized_pq)
+        };
+
+        let one_minus_e2 = 1.0 - e2;
+        let one_minus_e2_2 = one_minus_e2 * one_minus_e2;
+        let one_minus_e2_4 = one_minus_e2_2 * one_minus_e2_2;
+        let e3 = fmla(self.min_lum, one_minus_e2_4, e2);
+        let e4 = e3 * self.content_luminance_range + self.content_min_luminance;
+        let d4 = pq_to_linear_unscaled(e4) * 10000.0;
+        let new_luminance = d4.min(self.display_max_brightness).max(0.);
+
+        let min_luminance = 1e-6;
+        let use_limit = luma <= min_luminance;
+        let ratio = new_luminance / luma.max(min_luminance);
+        let limit = new_luminance * self.inv_target_peak;
+        let scale = ratio * self.normalizer;
+        if use_limit {
+            limit
+        } else {
+            scale
+        }
+    }
+}
+
+impl<const CN: usize> ToneMap for Rec2408ToneMapper<CN> {
+    fn process_lane(&self, in_place: &mut [f32]) {
+        for chunk in in_place.chunks_exact_mut(CN) {
+            let luma = fmla(
+                chunk[0],
+                self.primaries[0],
+                fmla(chunk[1], self.primaries[1], chunk[2] * self.primaries[2]),
+            ) * self.content_max_brightness;
+            if luma == 0. {
+                chunk[0] = 0.;
+                chunk[1] = 0.;
+                chunk[2] = 0.;
+                continue;
+            }
+            let scale = self.make_luma_scale(luma);
+            chunk[0] *= scale;
+            chunk[1] *= scale;
+            chunk[2] *= scale;
+        }
+    }
+
+    fn process_luma_lane(&self, chunk: &mut [f32]) {
+        for chunk in chunk.chunks_exact_mut(CN) {
+            let scale = self.make_luma_scale(chunk[0] * self.content_max_brightness);
+            chunk[0] *= scale;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TunedReinhardToneMapper<const CN: usize> {
     w_a: f32,
     w_b: f32,
     primaries: [f32; 3],
 }
 
-impl<const CN: usize> Rec2408ToneMapper<CN> {
+impl<const CN: usize> TunedReinhardToneMapper<CN> {
     pub(crate) fn new(
         content_max_brightness: f32,
         display_max_brightness: f32,
@@ -107,14 +244,14 @@ impl<const CN: usize> Rec2408ToneMapper<CN> {
     }
 }
 
-impl<const CN: usize> Rec2408ToneMapper<CN> {
+impl<const CN: usize> TunedReinhardToneMapper<CN> {
     #[inline(always)]
     fn tonemap(&self, luma: f32) -> f32 {
         mlaf(1f32, self.w_a, luma) / mlaf(1f32, self.w_b, luma)
     }
 }
 
-impl<const CN: usize> ToneMap for Rec2408ToneMapper<CN> {
+impl<const CN: usize> ToneMap for TunedReinhardToneMapper<CN> {
     fn process_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.chunks_exact_mut(CN) {
             let luma = fmla(

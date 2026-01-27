@@ -164,7 +164,7 @@ fn extract_images(file_path: &str) -> GainMapAssociationGroup {
 }
 
 fn main() {
-    let img = image::ImageReader::open("./assets/03.jpg")
+    let img = image::ImageReader::open("./assets/base.jpeg")
         .unwrap()
         .decode()
         .unwrap();
@@ -186,16 +186,16 @@ fn main() {
         //     saturation: Rgb::new(1.4, 1.4, 1.4),
         //     offset: Rgb::default(),
         // })),
-        ToneMappingMethod::Rec2408(GainHdrMetadata::new(2000f32, 203.)),
+        ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
         // ToneMappingMethod::ExtendedReinhard,
-        MappingColorSpace::Rgb(RgbToneMapperParameters {
-            gamut_clipping: GamutClipping::NoClip,
-            exposure: 1f32,
-        }),
-        // MappingColorSpace::YRgb(CommonToneMapperParameters {
-        //     exposure: 1f32,
+        // MappingColorSpace::Rgb(RgbToneMapperParameters {
         //     gamut_clipping: GamutClipping::NoClip,
+        //     exposure: 1f32,
         // }),
+        MappingColorSpace::Yrg(CommonToneMapperParameters {
+            exposure: 1f32,
+            gamut_clipping: GamutClipping::NoClip,
+        }),
         // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
         //     content_brightness: 2000.,
         //     exposure: 1f32,
@@ -247,7 +247,7 @@ fn main() {
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
     image::save_buffer(
-        "clamp_agx_t.jpg",
+        "tuned_reinhard.jpg",
         &dst,
         img.width(),
         img.height(),

@@ -31,6 +31,7 @@ use crate::{m_clamp, ForgeError, RgbToneMapperParameters, ToneMapper};
 use moxcms::{filmlike_clip, CmsError, InPlaceStage, Matrix3f, Rgb};
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const GAMMA_SIZE: usize>
 {
@@ -41,7 +42,7 @@ pub(crate) struct ToneMapperImpl<T: Copy, const N: usize, const CN: usize, const
     pub(crate) gamma_map_g: Box<[T; 65536]>,
     pub(crate) gamma_map_b: Box<[T; 65536]>,
     pub(crate) im_stage: Option<Box<dyn InPlaceStage + Sync + Send>>,
-    pub(crate) tone_map: Box<crate::tonemapper::SyncToneMap>,
+    pub(crate) tone_map: Arc<crate::tonemapper::SyncToneMap>,
     pub(crate) params: RgbToneMapperParameters,
 }
 
@@ -135,7 +136,7 @@ where
             return Err(ForgeError::LaneMultipleOfChannels);
         }
         assert_eq!(src.len(), dst.len());
-        let mut linearized_content = vec![0f32; src.len()];
+        let mut linearized_content = vec![0.; src.len()];
         for (src, dst) in src
             .chunks_exact(CN)
             .zip(linearized_content.chunks_exact_mut(CN))

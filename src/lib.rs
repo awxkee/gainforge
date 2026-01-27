@@ -257,7 +257,7 @@ pub use iso_gain_map::{
     UhdrDirectorySeq, UhdrItem, UhdrItemContainerLi, UhdrItemResource,
 };
 pub use mappers::{AgxCustomLook, AgxLook, ToneMappingMethod};
-use num_traits::Num;
+use num_traits::{Float, Num};
 pub use spline::FilmicSplineParameters;
 pub use tonemapper::{
     create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
@@ -269,13 +269,6 @@ pub use tonemapper::{
 };
 
 #[inline]
-pub(crate) fn m_clamp<T: Num + PartialOrd>(a: T, min: T, max: T) -> T {
-    if a > max {
-        max
-    } else if a >= min {
-        a
-    } else {
-        // a < min or a is NaN
-        min
-    }
+pub(crate) fn m_clamp<T: Num + Float>(a: T, min: T, max: T) -> T {
+    a.min(max).max(min)
 }
