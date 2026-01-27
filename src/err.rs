@@ -36,7 +36,7 @@ pub struct MismatchedSize {
     pub received: usize,
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum ForgeError {
     LaneSizeMismatch,
     LaneMultipleOfChannels,
@@ -52,6 +52,7 @@ pub enum ForgeError {
     InvalidGainMapConfiguration,
     ImageSizeMismatch,
     ZeroBaseSize,
+    UnsupportedToneMappingConfiguration(String),
     MinimumSliceSizeMismatch(MismatchedSize),
     MinimumStrideSizeMismatch(MismatchedSize),
     UnknownError,
@@ -90,6 +91,7 @@ impl Display for ForgeError {
                 "Minimum stride must have size at least {} but it is {}",
                 size.expected, size.received
             )),
+            ForgeError::UnsupportedToneMappingConfiguration(str) => f.write_str(str),
             ForgeError::UnknownError => f.write_str("Unknown error"),
         }
     }
