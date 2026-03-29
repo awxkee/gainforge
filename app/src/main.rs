@@ -186,7 +186,8 @@ fn main() {
         //     saturation: Rgb::new(1.4, 1.4, 1.4),
         //     offset: Rgb::default(),
         // })),
-        ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
+        ToneMappingMethod::ReinhardJodie,
+        // ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
         // ToneMappingMethod::ExtendedReinhard,
         // MappingColorSpace::Rgb(RgbToneMapperParameters {
         //     gamut_clipping: GamutClipping::NoClip,

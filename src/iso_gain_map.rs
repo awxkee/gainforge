@@ -943,8 +943,8 @@ impl<const N: usize> GainLUT<N> {
             gain = f_powf(gain, gamma_inv);
         }
         let idx = (mlaf(0.5f32, gain, (N - 1) as f32) as i32)
-            .min(0)
-            .max(N as i32 - 1) as usize;
+            .max(0)
+            .min(N as i32 - 1) as usize;
         if CN == 0 {
             self.r_lut[idx]
         } else if CN == 1 {
