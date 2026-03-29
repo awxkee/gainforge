@@ -509,7 +509,7 @@ impl<const CN: usize> ToneMap for ReinhardJodieToneMapper<CN> {
 
             chunk[0] = lerp(chunk[0] * luma_scale, tv_r, tv_r).min(1f32);
             chunk[1] = lerp(chunk[1] * luma_scale, tv_g, tv_g).min(1f32);
-            chunk[2] = lerp(chunk[1] * luma_scale, tv_b, tv_b).min(1f32);
+            chunk[2] = lerp(chunk[2] * luma_scale, tv_b, tv_b).min(1f32);
         }
     }
 
@@ -584,8 +584,6 @@ fn agx_default_contrast(x: f32) -> f32 {
 
     z1 + z0
 }
-
-const AGX_OUTSET: Matrix3f = AGX_OUTSET_INV.inverse();
 
 const AGX_MIN_EV: f32 = -12.47393; // log2(pow(2, LOG2_MIN) * MIDDLE_GRAY)
 const AGX_MAX_EV: f32 = 4.026069; // log2(pow(2, LOG2_MAX) * MIDDLE_GRAY)
@@ -682,6 +680,7 @@ impl<const CN: usize> AgxToneMapper<CN> {
         let vec1 = Vector3f {
             v: [z4.r, z4.g, z4.b],
         };
+        const AGX_OUTSET: Matrix3f = AGX_OUTSET_INV.inverse();
         let z5 = AGX_OUTSET.f_mul_vector(vec1);
         Rgb {
             r: z5.v[0],

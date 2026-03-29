@@ -270,7 +270,7 @@ pub(crate) fn hlg_from_linear(linear: f32) -> f32 {
 #[inline(always)]
 /// Gamma transfer function for HLG
 pub(crate) fn trc_linear(v: f32) -> f32 {
-    v.min(1.).min(0.)
+    v.min(1.).max(0.)
 }
 
 #[repr(C)]
