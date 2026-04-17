@@ -222,8 +222,8 @@ pub(crate) fn create_spline(p: FilmicSplineParameters) -> FilmicSpline {
     let balance = m_clamp(p.balance, -50.0f32, 50.0f32) / 100.0f32; // in %
     let slope = p.contrast * dynamic_range / 8.0f32;
     let mut min_contrast = 1.0f32; // otherwise, white_display and black_display cannot be reached
-                                   // make sure there is enough contrast to be able to construct the top right part of the curve
-                                   // make sure there is enough contrast to be able to construct the bottom left part of the curve
+    // make sure there is enough contrast to be able to construct the top right part of the curve
+    // make sure there is enough contrast to be able to construct the bottom left part of the curve
 
     min_contrast = f32::max(
         min_contrast,

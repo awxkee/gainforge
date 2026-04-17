@@ -27,7 +27,7 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::iso_gain_map::{GainLUT, GainMap};
-use crate::mlaf::mlaf;
+use crate::mlaf::{fmla, mlaf};
 use crate::{ForgeError, GainImage, GainImageMut};
 use moxcms::{ColorProfile, GammaLutInterpolate, Matrix3f, PointeeSizeExpressible, Rgb};
 use num_traits::AsPrimitive;
@@ -458,18 +458,22 @@ where
         .zip(image.data.as_ref().chunks_exact(src_stride))
         .zip(dst_image.chunks_exact_mut(dst_stride))
     {
-        for (src, dst) in gain_lane[..width * GAIN_N]
-            .chunks_exact(3)
-            .zip(linearized_gain_content.chunks_exact_mut(GAIN_N))
-        {
+        for (src, dst) in gain_lane[..width * GAIN_N].as_chunks::<3>().0.iter().zip(
+            linearized_gain_content
+                .as_chunks_mut::<GAIN_N>()
+                .0
+                .iter_mut(),
+        ) {
             dst[0] = gain_image_linearize_map_r[src[0].as_()];
             dst[1] = gain_image_linearize_map_g[src[1].as_()];
             dst[2] = gain_image_linearize_map_b[src[2].as_()];
         }
 
         for (src, dst) in image_lane[..width * N]
-            .chunks_exact(N)
-            .zip(linearized_image_content.chunks_exact_mut(N))
+            .as_chunks::<N>()
+            .0
+            .iter()
+            .zip(linearized_image_content.as_chunks_mut::<N>().0.iter_mut())
         {
             dst[0] = image_linearize_map_r[src[0].as_()];
             dst[1] = image_linearize_map_g[src[1].as_()];
@@ -480,9 +484,11 @@ where
         }
 
         for ((gain, src), dst) in linearized_gain_content
-            .chunks_exact(GAIN_N)
-            .zip(linearized_image_content.chunks_exact(N))
-            .zip(working_lane.chunks_exact_mut(N))
+            .as_chunks::<GAIN_N>()
+            .0
+            .iter()
+            .zip(linearized_image_content.as_chunks::<N>().0.iter())
+            .zip(working_lane.as_chunks_mut::<N>().0.iter_mut())
         {
             let applied_gain = lut.apply_gain(
                 Rgb {
@@ -507,30 +513,30 @@ where
         if let Some(transform) = transform {
             let is_identity_transform = transform.test_equality(Matrix3f::IDENTITY);
             if !is_identity_transform {
-                for chunk in working_lane.chunks_exact_mut(N) {
+                for chunk in working_lane.as_chunks_mut::<N>().0.iter_mut() {
                     chunk[0] = mlaf(
                         mlaf(chunk[0] * transform.v[0][0], chunk[1], transform.v[0][1]),
                         chunk[2],
                         transform.v[0][2],
                     )
-                    .min(1f32)
-                    .max(0f32);
+                    .min(1.)
+                    .max(0.);
 
                     chunk[1] = mlaf(
                         mlaf(chunk[0] * transform.v[1][0], chunk[1], transform.v[1][1]),
                         chunk[2],
                         transform.v[1][2],
                     )
-                    .min(1f32)
-                    .max(0f32);
+                    .min(1.)
+                    .max(0.);
 
                     chunk[2] = mlaf(
                         mlaf(chunk[0] * transform.v[2][0], chunk[1], transform.v[2][1]),
                         chunk[2],
                         transform.v[2][2],
                     )
-                    .min(1f32)
-                    .max(0f32);
+                    .min(1.)
+                    .max(0.);
                 }
             }
         }
@@ -538,12 +544,14 @@ where
         let gamma_scale = (GAMMA_DEPTH - 1) as f32;
 
         for (dst, src) in dst_lane
-            .chunks_exact_mut(N)
-            .zip(working_lane.chunks_exact(N))
+            .as_chunks_mut::<N>()
+            .0
+            .iter_mut()
+            .zip(working_lane.as_chunks::<N>().0.iter())
         {
-            let r = mlaf(0.5f32, src[0], gamma_scale) as u16;
-            let g = mlaf(0.5f32, src[1], gamma_scale) as u16;
-            let b = mlaf(0.5f32, src[2], gamma_scale) as u16;
+            let r = fmla(src[0], gamma_scale, 0.5) as u16;
+            let g = fmla(src[1], gamma_scale, 0.5) as u16;
+            let b = fmla(src[2], gamma_scale, 0.5) as u16;
             dst[0] = output_gamma_map_r[r as usize];
             dst[1] = output_gamma_map_g[g as usize];
             dst[2] = output_gamma_map_b[b as usize];

@@ -26,9 +26,9 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::mlaf::mlaf;
-use crate::{m_clamp, ForgeError, RgbToneMapperParameters, ToneMapper};
-use moxcms::{filmlike_clip, CmsError, InPlaceStage, Matrix3f, Rgb};
+use crate::mlaf::fmla;
+use crate::{ForgeError, RgbToneMapperParameters, ToneMapper};
+use moxcms::{CmsError, InPlaceStage, Matrix3f, Rgb, filmlike_clip};
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -53,28 +53,70 @@ pub(crate) struct MatrixStage<const CN: usize> {
 impl<const CN: usize> InPlaceStage for MatrixStage<CN> {
     fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
         let c = self.gamut_color_conversion;
-        for chunk in dst.chunks_exact_mut(CN) {
-            let r = mlaf(
-                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
-                chunk[2],
-                c.v[0][2],
+        for chunk in dst.as_chunks_mut::<CN>().0.iter_mut() {
+            let r = fmla(
+                chunk[1],
+                c.v[0][1],
+                fmla(chunk[2], c.v[0][2], chunk[0] * c.v[0][0]),
             );
-            let g = mlaf(
-                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
-                chunk[2],
-                c.v[1][2],
+            let g = fmla(
+                chunk[1],
+                c.v[1][1],
+                fmla(chunk[2], c.v[1][2], chunk[0] * c.v[1][0]),
             );
-            let b = mlaf(
-                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
-                chunk[2],
-                c.v[2][2],
+            let b = fmla(
+                chunk[1],
+                c.v[2][1],
+                fmla(chunk[2], c.v[2][2], chunk[0] * c.v[2][0]),
             );
 
-            chunk[0] = m_clamp(r, 0.0, 1.0);
-            chunk[1] = m_clamp(g, 0.0, 1.0);
-            chunk[2] = m_clamp(b, 0.0, 1.0);
+            chunk[0] = r.max(0.0).min(1.0);
+            chunk[1] = g.max(0.0).min(1.0);
+            chunk[2] = b.max(0.0).min(1.0);
         }
         Ok(())
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub(crate) struct FmaMatrixStage<const CN: usize> {
+    pub(crate) gamut_color_conversion: Matrix3f,
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<const CN: usize> FmaMatrixStage<CN> {
+    #[target_feature(enable = "avx2", enable = "fma")]
+    fn transform_impl(&self, dst: &mut [f32]) -> Result<(), CmsError> {
+        let c = self.gamut_color_conversion;
+        for chunk in dst.as_chunks_mut::<CN>().0.iter_mut() {
+            let r = f32::mul_add(
+                chunk[1],
+                c.v[0][1],
+                f32::mul_add(chunk[2], c.v[0][2], chunk[0] * c.v[0][0]),
+            );
+            let g = f32::mul_add(
+                chunk[1],
+                c.v[1][1],
+                f32::mul_add(chunk[2], c.v[1][2], chunk[0] * c.v[1][0]),
+            );
+            let b = f32::mul_add(
+                chunk[1],
+                c.v[2][1],
+                f32::mul_add(chunk[2], c.v[2][2], chunk[0] * c.v[2][0]),
+            );
+
+            chunk[0] = r.max(0.0).min(1.0);
+            chunk[1] = g.max(0.0).min(1.0);
+            chunk[2] = b.max(0.0).min(1.0);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<const CN: usize> InPlaceStage for FmaMatrixStage<CN> {
+    fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
+        unsafe { self.transform_impl(dst) }
     }
 }
 
@@ -85,33 +127,33 @@ pub(crate) struct MatrixGamutClipping<const CN: usize> {
 impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
     fn transform(&self, dst: &mut [f32]) -> Result<(), CmsError> {
         let c = self.gamut_color_conversion;
-        for chunk in dst.chunks_exact_mut(CN) {
-            let r = mlaf(
-                mlaf(chunk[0] * c.v[0][0], chunk[1], c.v[0][1]),
-                chunk[2],
-                c.v[0][2],
+        for chunk in dst.as_chunks_mut::<CN>().0.iter_mut() {
+            let r = fmla(
+                chunk[1],
+                c.v[0][1],
+                fmla(chunk[2], c.v[0][2], chunk[0] * c.v[0][0]),
             );
-            let g = mlaf(
-                mlaf(chunk[0] * c.v[1][0], chunk[1], c.v[1][1]),
-                chunk[2],
-                c.v[1][2],
+            let g = fmla(
+                chunk[1],
+                c.v[1][1],
+                fmla(chunk[2], c.v[1][2], chunk[0] * c.v[1][0]),
             );
-            let b = mlaf(
-                mlaf(chunk[0] * c.v[2][0], chunk[1], c.v[2][1]),
-                chunk[2],
-                c.v[2][2],
+            let b = fmla(
+                chunk[1],
+                c.v[2][1],
+                fmla(chunk[2], c.v[2][2], chunk[0] * c.v[2][0]),
             );
 
             let mut rgb = Rgb::new(r, g, b);
             if rgb.is_out_of_gamut() {
                 rgb = filmlike_clip(rgb);
-                chunk[0] = m_clamp(rgb.r, 0.0, 1.0);
-                chunk[1] = m_clamp(rgb.g, 0.0, 1.0);
-                chunk[2] = m_clamp(rgb.b, 0.0, 1.0);
+                chunk[0] = rgb.r.max(0.0).min(1.0);
+                chunk[1] = rgb.g.max(0.0).min(1.0);
+                chunk[2] = rgb.b.max(0.0).min(1.0);
             } else {
-                chunk[0] = m_clamp(r, 0.0, 1.0);
-                chunk[1] = m_clamp(g, 0.0, 1.0);
-                chunk[2] = m_clamp(b, 0.0, 1.0);
+                chunk[0] = r.max(0.0).min(1.0);
+                chunk[1] = g.max(0.0).min(1.0);
+                chunk[2] = b.max(0.0).min(1.0);
             }
         }
         Ok(())
@@ -119,11 +161,11 @@ impl<const CN: usize> InPlaceStage for MatrixGamutClipping<CN> {
 }
 
 impl<
-        T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
-        const N: usize,
-        const CN: usize,
-        const GAMMA_SIZE: usize,
-    > ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
+    T: Copy + AsPrimitive<usize> + Clone + Default + Debug,
+    const N: usize,
+    const CN: usize,
+    const GAMMA_SIZE: usize,
+> ToneMapper<T> for ToneMapperImpl<T, N, CN, GAMMA_SIZE>
 where
     u32: AsPrimitive<T>,
 {
@@ -132,51 +174,57 @@ where
         if src.len() != dst.len() {
             return Err(ForgeError::LaneSizeMismatch);
         }
-        if src.len() % CN != 0 {
+        if !src.len().is_multiple_of(CN) {
             return Err(ForgeError::LaneMultipleOfChannels);
         }
         assert_eq!(src.len(), dst.len());
-        let mut linearized_content = vec![0.; src.len()];
-        for (src, dst) in src
-            .chunks_exact(CN)
-            .zip(linearized_content.chunks_exact_mut(CN))
-        {
-            dst[0] = self.linear_map_r[src[0].as_()] * self.params.exposure;
-            dst[1] = self.linear_map_g[src[1].as_()] * self.params.exposure;
-            dst[2] = self.linear_map_b[src[2].as_()] * self.params.exposure;
-            if CN == 4 {
-                dst[3] = f32::from_bits(src[3].as_() as u32);
+        const CHUNK: usize = 256;
+        let mut scratch = [0f32; CHUNK * 4];
+        let scratch = &mut scratch[..CHUNK * CN];
+
+        let src_chunks = src.as_chunks::<CN>().0;
+        let dst_chunks = dst.as_chunks_mut::<CN>().0;
+
+        for (src_block, dst_block) in src_chunks.chunks(CHUNK).zip(dst_chunks.chunks_mut(CHUNK)) {
+            let len = src_block.len();
+            let scratch = &mut scratch[..len * CN];
+
+            for (src, dst) in src_block
+                .iter()
+                .zip(scratch.as_chunks_mut::<CN>().0.iter_mut())
+            {
+                dst[0] = self.linear_map_r[src[0].as_()] * self.params.exposure;
+                dst[1] = self.linear_map_g[src[1].as_()] * self.params.exposure;
+                dst[2] = self.linear_map_b[src[2].as_()] * self.params.exposure;
+                if CN == 4 {
+                    dst[3] = f32::from_bits(src[3].as_() as u32);
+                }
             }
-        }
 
-        self.tonemap_linearized_lane(&mut linearized_content)?;
+            self.tonemap_linearized_lane(scratch)?;
 
-        if let Some(c) = &self.im_stage {
-            c.transform(&mut linearized_content)
-                .map_err(|_| ForgeError::UnknownError)?;
-        } else {
-            for chunk in linearized_content.chunks_exact_mut(CN) {
-                let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
-                chunk[0] = rgb.r.max(0.);
-                chunk[1] = rgb.g.max(0.);
-                chunk[2] = rgb.b.max(0.);
+            if let Some(c) = &self.im_stage {
+                c.transform(scratch).map_err(|_| ForgeError::UnknownError)?;
+            } else {
+                for chunk in scratch.as_chunks_mut::<CN>().0.iter_mut() {
+                    chunk[0] = chunk[0].max(0.);
+                    chunk[1] = chunk[1].max(0.);
+                    chunk[2] = chunk[2].max(0.);
+                }
             }
-        }
 
-        let scale_value = (GAMMA_SIZE - 1) as f32;
-
-        for (dst, src) in dst
-            .chunks_exact_mut(CN)
-            .zip(linearized_content.chunks_exact(CN))
-        {
-            let r = mlaf(0.5, src[0], scale_value).min(u16::MAX as f32) as u16;
-            let g = mlaf(0.5, src[1], scale_value).min(u16::MAX as f32) as u16;
-            let b = mlaf(0.5, src[2], scale_value).min(u16::MAX as f32) as u16;
-            dst[0] = self.gamma_map_r[r as usize];
-            dst[1] = self.gamma_map_g[g as usize];
-            dst[2] = self.gamma_map_b[b as usize];
-            if CN == 4 {
-                dst[3] = src[3].to_bits().as_();
+            // gamma encode
+            let scale_value = (GAMMA_SIZE - 1) as f32;
+            for (dst, src) in dst_block.iter_mut().zip(scratch.as_chunks::<CN>().0.iter()) {
+                let r = fmla(src[0], scale_value, 0.5).min(u16::MAX as f32) as u16;
+                let g = fmla(src[1], scale_value, 0.5).min(u16::MAX as f32) as u16;
+                let b = fmla(src[2], scale_value, 0.5).min(u16::MAX as f32) as u16;
+                dst[0] = self.gamma_map_r[r as usize];
+                dst[1] = self.gamma_map_g[g as usize];
+                dst[2] = self.gamma_map_b[b as usize];
+                if CN == 4 {
+                    dst[3] = src[3].to_bits().as_();
+                }
             }
         }
 
@@ -185,7 +233,7 @@ where
 
     fn tonemap_linearized_lane(&self, in_place: &mut [f32]) -> Result<(), ForgeError> {
         assert!(CN == 3 || CN == 4);
-        if in_place.len() % CN != 0 {
+        if !in_place.len().is_multiple_of(CN) {
             return Err(ForgeError::LaneMultipleOfChannels);
         }
         self.tone_map.process_lane(in_place);
