@@ -30,10 +30,11 @@ mod mlaf;
 mod parse;
 
 use gainforge::{
-    create_tone_mapper_rgb, create_tone_mapper_rgb16, AgxCustomLook, AgxLook, BufferStore,
-    CommonToneMapperParameters, FilmicSplineParameters, GainHdrMetadata, GainImage, GainImageMut,
-    GamutClipping, IsoGainMap, JzazbzToneMapperParameters, MappingColorSpace, MpfInfo,
-    RgbToneMapperParameters, ToneMappingMethod, TransferFunction, UhdrDirectoryContainer,
+    create_tone_mapper_rgb, create_tone_mapper_rgb16, create_tone_mapper_rgba, AgxCustomLook,
+    AgxLook, BufferStore, CommonToneMapperParameters, FilmicSplineParameters, GainHdrMetadata,
+    GainImage, GainImageMut, GamutClipping, IsoGainMap, JzazbzToneMapperParameters,
+    MappingColorSpace, MpfInfo, RgbToneMapperParameters, ToneMappingMethod, TransferFunction,
+    UhdrDirectoryContainer,
 };
 use moxcms::{ColorProfile, Rgb};
 use std::fs::File;
@@ -186,11 +187,14 @@ fn main() {
         //     saturation: Rgb::new(1.4, 1.4, 1.4),
         //     offset: Rgb::default(),
         // })),
-        ToneMappingMethod::ReinhardJodie,
+        ToneMappingMethod::Itu2408(GainHdrMetadata {
+            content_max_brightness: 10000.,
+            display_max_brightness: 250.,
+        }),
         // ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
-        // ToneMappingMethod::ExtendedReinhard,
+        // ToneMappingMethod::Reinhard,
         // MappingColorSpace::Rgb(RgbToneMapperParameters {
-        //     gamut_clipping: GamutClipping::NoClip,
+        //     gamut_clipping: GamutClipping::Compress,
         //     exposure: 1f32,
         // }),
         MappingColorSpace::Yrg(CommonToneMapperParameters {
@@ -206,14 +210,17 @@ fn main() {
     .unwrap();
     let dims = rgb.dimensions();
     let mut dst = vec![0u8; rgb.len()];
-    let work_time = Instant::now();
-    for (src, dst) in rgb
-        .chunks_exact(rgb.dimensions().0 as usize * 3)
-        .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 3))
-    {
-        tone_mapper.tonemap_lane(src, dst).unwrap();
+    for i in 0..1 {
+        let work_time = Instant::now();
+        // for (src, dst) in rgb
+        //     .chunks_exact(rgb.dimensions().0 as usize * 4)
+        //     .zip(dst.chunks_exact_mut(rgb.dimensions().0 as usize * 4))
+        // {
+        //     tone_mapper.tonemap_lane(src, dst).unwrap();
+        // }
+        tone_mapper.tonemap_lane(&rgb, &mut dst).unwrap();
+        println!("Exec time: {:?}", work_time.elapsed());
     }
-    println!("Exec time: {:?}", work_time.elapsed());
     // Load required associated images
     // let associated = extract_images("./assets/02.jpg");
     //
@@ -247,8 +254,12 @@ fn main() {
 
     // let compressed = dst.iter().map(|&x| (x >> 8) as u8).collect::<Vec<_>>();
 
+    // for chunk in dst.as_chunks_mut::<4>().0.iter_mut() {
+    //     chunk[3] = 255;
+    // }
+
     image::save_buffer(
-        "tuned_reinhard.jpg",
+        "rgba_tuned_reinhard.jpg",
         &dst,
         img.width(),
         img.height(),

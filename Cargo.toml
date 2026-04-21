@@ -2,8 +2,8 @@ workspace = { members = ["app"] }
 
 [package]
 name = "gainforge"
-version = "0.4.1"
-edition = "2021"
+version = "0.5.0"
+edition = "2024"
 description = "HDR tonemapping library"
 readme = "README.md"
 keywords = ["hdr", "tonemap", "image"]
@@ -14,7 +14,7 @@ categories = ["multimedia::images"]
 homepage = "https://github.com/awxkee/gainforge"
 repository = "https://github.com/awxkee/gainforge"
 exclude = ["*.jpg", "assets/*", "*.png", "assets/bench.jpg", "assets/bench.png", "assets/hdr.avif"]
-rust-version = "1.82.0"
+rust-version = "1.89.0"
 
 [dependencies]
 moxcms = "0.8.0"
@@ -24,8 +24,9 @@ quick-xml = { version = "0.39.0", features = ["serde", "serde-types", "serialize
 serde = { version = "^1.0.219", features = ["derive"], optional = true }
 
 [features]
-default = []
+default = ["neon"]
 uhdr = ["dep:serde", "dep:quick-xml"]
+neon = []
 
 [package.metadata.docs.rs]
 # To build locally:

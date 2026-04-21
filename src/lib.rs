@@ -238,6 +238,8 @@ mod gamma;
 mod iso_gain_map;
 mod mappers;
 mod mlaf;
+#[cfg(all(target_arch = "aarch64", feature = "neon"))]
+mod neon;
 mod rgb_tone_mapper;
 mod spline;
 mod tonemapper;
@@ -252,20 +254,20 @@ pub use gain_image::{BufferStore, GainImage, GainImageMut};
 pub use gamma::TransferFunction;
 #[cfg(feature = "uhdr")]
 pub use iso_gain_map::{
-    make_gainmap_weight, IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo,
-    MpfNumberOfImages, MpfTag, UhdrDirectory, UhdrDirectoryContainer, UhdrDirectoryRdf,
-    UhdrDirectorySeq, UhdrItem, UhdrItemContainerLi, UhdrItemResource,
+    IsoGainMap, MpfDataType, MpfEndianness, MpfEntry, MpfImageType, MpfInfo, MpfNumberOfImages,
+    MpfTag, UhdrDirectory, UhdrDirectoryContainer, UhdrDirectoryRdf, UhdrDirectorySeq, UhdrItem,
+    UhdrItemContainerLi, UhdrItemResource, make_gainmap_weight,
 };
 pub use mappers::{AgxCustomLook, AgxLook, ToneMappingMethod};
 use num_traits::{Float, Num};
 pub use spline::FilmicSplineParameters;
 pub use tonemapper::{
-    create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
+    CommonToneMapperParameters, GainHdrMetadata, GamutClipping, JzazbzToneMapperParameters,
+    MappingColorSpace, RgbToneMapperParameters, SyncToneMapper8Bit, SyncToneMapper16Bit,
+    ToneMapper, create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
     create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
     create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
-    create_tone_mapper_rgba16, CommonToneMapperParameters, GainHdrMetadata, GamutClipping,
-    JzazbzToneMapperParameters, MappingColorSpace, RgbToneMapperParameters, SyncToneMapper16Bit,
-    SyncToneMapper8Bit, ToneMapper,
+    create_tone_mapper_rgba16,
 };
 
 #[inline]
