@@ -24,9 +24,10 @@ quick-xml = { version = "0.39.0", features = ["serde", "serde-types", "serialize
 serde = { version = "^1.0.219", features = ["derive"], optional = true }
 
 [features]
-default = ["neon"]
+default = ["neon", "avx"]
 uhdr = ["dep:serde", "dep:quick-xml"]
 neon = []
+avx = []
 
 [package.metadata.docs.rs]
 # To build locally:

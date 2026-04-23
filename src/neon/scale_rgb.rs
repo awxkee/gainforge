@@ -26,8 +26,7 @@
  * // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-use crate::neon::MangledCoercion;
-use crate::neon::util::{split_by_twos, split_by_twos_mut};
+use crate::util::{MangledCoercion, split_by_twos, split_by_twos_mut};
 use crate::{ForgeError, ToneMapper};
 use moxcms::Matrix3f;
 use num_traits::AsPrimitive;
@@ -123,8 +122,8 @@ pub(crate) struct HotLumaMapperNeon<
     const N: usize,
     const CN: usize,
 > {
-    pub(crate) r_linear: Box<[f32; N]>,
-    pub(crate) r_gamma: Box<[T; 65536]>,
+    pub(crate) linear: Box<[f32; N]>,
+    pub(crate) gamma: Box<[T; 65536]>,
     pub(crate) bit_depth: usize,
     pub(crate) gamma_lut: usize,
     pub(crate) adaptation_matrix: Matrix3f,
@@ -168,7 +167,7 @@ where
         let scale = (self.gamma_lut - 1) as f32;
         let max_colors: T = ((1 << self.bit_depth) - 1).as_();
 
-        let r_lin = &self.r_linear;
+        let r_lin = &self.linear;
 
         let (src_chunks, src_remainder) = split_by_twos(src, CN);
         let (dst_chunks, dst_remainder) = split_by_twos_mut(dst, CN);
@@ -295,30 +294,30 @@ where
                     vst1q_u32(temporary2.0.as_mut_ptr() as *mut _, zx2);
                     vst1q_u32(temporary3.0.as_mut_ptr() as *mut _, zx3);
 
-                    dst0[0] = self.r_gamma[temporary0.0[0] as usize];
-                    dst0[1] = self.r_gamma[temporary0.0[2] as usize];
-                    dst0[2] = self.r_gamma[temporary0.0[4] as usize];
+                    dst0[0] = self.gamma[temporary0.0[0] as usize];
+                    dst0[1] = self.gamma[temporary0.0[2] as usize];
+                    dst0[2] = self.gamma[temporary0.0[4] as usize];
                     if CN == 4 {
                         dst0[3] = a0;
                     }
 
-                    dst0[CN] = self.r_gamma[temporary1.0[0] as usize];
-                    dst0[1 + CN] = self.r_gamma[temporary1.0[2] as usize];
-                    dst0[2 + CN] = self.r_gamma[temporary1.0[4] as usize];
+                    dst0[CN] = self.gamma[temporary1.0[0] as usize];
+                    dst0[1 + CN] = self.gamma[temporary1.0[2] as usize];
+                    dst0[2 + CN] = self.gamma[temporary1.0[4] as usize];
                     if CN == 4 {
                         dst0[3 + CN] = a1;
                     }
 
-                    dst1[0] = self.r_gamma[temporary2.0[0] as usize];
-                    dst1[1] = self.r_gamma[temporary2.0[2] as usize];
-                    dst1[2] = self.r_gamma[temporary2.0[4] as usize];
+                    dst1[0] = self.gamma[temporary2.0[0] as usize];
+                    dst1[1] = self.gamma[temporary2.0[2] as usize];
+                    dst1[2] = self.gamma[temporary2.0[4] as usize];
                     if CN == 4 {
                         dst1[3] = a2;
                     }
 
-                    dst1[CN] = self.r_gamma[temporary3.0[0] as usize];
-                    dst1[1 + CN] = self.r_gamma[temporary3.0[2] as usize];
-                    dst1[2 + CN] = self.r_gamma[temporary3.0[4] as usize];
+                    dst1[CN] = self.gamma[temporary3.0[0] as usize];
+                    dst1[1 + CN] = self.gamma[temporary3.0[2] as usize];
+                    dst1[2 + CN] = self.gamma[temporary3.0[4] as usize];
                     if CN == 4 {
                         dst1[3 + CN] = a3;
                     }
@@ -354,9 +353,9 @@ where
                 let zx = vcvtq_u32_f32(v);
                 vst1q_u32(temporary0.0.as_mut_ptr() as *mut _, zx);
 
-                dst[0] = self.r_gamma[temporary0.0[0] as usize];
-                dst[1] = self.r_gamma[temporary0.0[2] as usize];
-                dst[2] = self.r_gamma[temporary0.0[4] as usize];
+                dst[0] = self.gamma[temporary0.0[0] as usize];
+                dst[1] = self.gamma[temporary0.0[2] as usize];
+                dst[2] = self.gamma[temporary0.0[4] as usize];
                 if CN == 4 {
                     dst[3] = a;
                 }

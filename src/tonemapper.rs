@@ -36,6 +36,8 @@ use crate::mappers::{
 use crate::mlaf::fmla;
 use crate::rgb_tone_mapper::{MatrixGamutClipping, MatrixStage, ToneMapperImpl};
 use crate::spline::{SplineToneMapper, create_spline};
+#[allow(unused_imports)]
+use crate::util::MangledCoercion;
 use moxcms::{ColorProfile, InPlaceStage, Jzazbz, Matrix3f, Rgb, Yrg, filmlike_clip};
 use num_traits::AsPrimitive;
 use std::fmt::Debug;
@@ -138,8 +140,7 @@ impl Default for RgbToneMapperParameters {
     }
 }
 
-pub type SyncToneMapper8Bit = dyn ToneMapper<u8> + Send + Sync;
-pub type SyncToneMapper16Bit = dyn ToneMapper<u16> + Send + Sync;
+pub type ToneMapping<T> = Arc<dyn ToneMapper<T> + Send + Sync>;
 
 pub(crate) type SyncToneMap = dyn ToneMap + Send + Sync;
 
@@ -448,7 +449,7 @@ fn create_tone_mapper_u8<const CN: usize>(
     output_color_space: &ColorProfile,
     method: ToneMappingMethod,
     working_color_space: MappingColorSpace,
-) -> Result<Arc<SyncToneMapper8Bit>, ForgeError> {
+) -> Result<ToneMapping<u8>, ForgeError> {
     let (linear_table_r, linear_table_g, linear_table_b);
     if let Some(trc) = input_color_space
         .cicp
@@ -506,111 +507,41 @@ fn create_tone_mapper_u8<const CN: usize>(
 
     match working_color_space {
         MappingColorSpace::Rgb(params) => {
+            #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+            {
+                if _all_luts_the_same
+                    && let Some(value) = gen_avx_transform::<u8, 256, CN>(
+                        input_color_space,
+                        &method,
+                        &working_color_space,
+                        &linear_table_r,
+                        &gamma_table_r,
+                        &tone_map,
+                        conversion,
+                        8,
+                        4096,
+                    )
+                {
+                    return value;
+                }
+            }
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
-            if let ToneMappingMethod::TunedReinhard(params) = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
             {
-                use crate::neon::{DisplayReinhardParamsNeon, HotTunedReinhardNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotTunedReinhardNeon::<u8, 256, CN> {
-                    r_linear: linear_table_r,
-                    r_gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: DisplayReinhardParamsNeon::new(
-                        params.content_max_brightness,
-                        params.display_max_brightness,
-                        203f32,
-                        luma_primaries,
-                    ),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::ExtendedReinhard = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-            {
-                use crate::neon::{ExtendedReinhardNeon, HotExtendedReinhardNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotExtendedReinhardNeon::<u8, 256, CN> {
-                    r_linear: linear_table_r,
-                    r_gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: ExtendedReinhardNeon::new(luma_primaries),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::ReinhardJodie = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-            {
-                use crate::neon::{HotReinhardJodieNeon, ReinhardJodieNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotReinhardJodieNeon::<u8, 256, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: ReinhardJodieNeon::new(luma_primaries),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::Filmic = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-            {
-                use crate::neon::{HableNeon, HotFilmicNeon};
-                return Ok(Arc::new(HotFilmicNeon::<u8, 256, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: HableNeon,
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::Aces = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
-            {
-                use crate::neon::{AcesNeon, HotAcesNeon};
-                return Ok(Arc::new(HotAcesNeon::<u8, 256, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: AcesNeon::default(),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::Reinhard = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
-            {
-                use crate::neon::{HotReinhardNeon, ReinhardNeon};
-                return Ok(Arc::new(HotReinhardNeon::<u8, 256, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 4096,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: ReinhardNeon::default(),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
+                if _all_luts_the_same
+                    && let Some(value) = get_neon_transform::<u8, 256, CN>(
+                        input_color_space,
+                        &method,
+                        &working_color_space,
+                        &linear_table_r,
+                        &gamma_table_r,
+                        &tone_map,
+                        conversion,
+                        8,
+                        4096,
+                    )
+                {
+                    return value;
+                }
             }
             let im_stage: Box<dyn InPlaceStage + Send + Sync> =
                 matrix_stage::<CN>(params.gamut_clipping, conversion);
@@ -675,7 +606,7 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
     output_color_space: &ColorProfile,
     method: ToneMappingMethod,
     working_color_space: MappingColorSpace,
-) -> Result<Arc<SyncToneMapper16Bit>, ForgeError> {
+) -> Result<ToneMapping<u16>, ForgeError> {
     assert!((8..=16).contains(&BIT_DEPTH));
     let (linear_table_r, linear_table_g, linear_table_b);
     if let Some(trc) = input_color_space
@@ -735,96 +666,41 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
     match working_color_space {
         MappingColorSpace::Rgb(params) => {
             let conversion = make_icc_transform(input_color_space, output_color_space);
+            #[cfg(all(target_arch = "x86_64", feature = "avx"))]
+            {
+                if _all_luts_the_same
+                    && let Some(value) = gen_avx_transform::<u16, 65536, CN>(
+                        input_color_space,
+                        &method,
+                        &working_color_space,
+                        &linear_table_r,
+                        &gamma_table_r,
+                        &tone_map,
+                        conversion,
+                        BIT_DEPTH,
+                        65536,
+                    )
+                {
+                    return value;
+                }
+            }
             #[cfg(all(target_arch = "aarch64", feature = "neon"))]
-            if let ToneMappingMethod::TunedReinhard(params) = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
             {
-                use crate::neon::{DisplayReinhardParamsNeon, HotTunedReinhardNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotTunedReinhardNeon::<u16, 65536, CN> {
-                    r_linear: linear_table_r,
-                    r_gamma: gamma_table_r,
-                    gamma_lut: 65536,
-                    adaptation_matrix: conversion,
-                    bit_depth: BIT_DEPTH,
-                    mapper: DisplayReinhardParamsNeon::new(
-                        params.content_max_brightness,
-                        params.display_max_brightness,
-                        203f32,
-                        luma_primaries,
-                    ),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::ExtendedReinhard = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-            {
-                use crate::neon::{ExtendedReinhardNeon, HotExtendedReinhardNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotExtendedReinhardNeon::<u16, 65536, CN> {
-                    r_linear: linear_table_r,
-                    r_gamma: gamma_table_r,
-                    gamma_lut: 65536,
-                    adaptation_matrix: conversion,
-                    bit_depth: 8,
-                    mapper: ExtendedReinhardNeon::new(luma_primaries),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::ReinhardJodie = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
-            {
-                use crate::neon::{HotReinhardJodieNeon, ReinhardJodieNeon};
-                let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
-                let luma_primaries: [f32; 3] = primaries.v[1];
-                return Ok(Arc::new(HotReinhardJodieNeon::<u16, 65536, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 65536,
-                    adaptation_matrix: conversion,
-                    bit_depth: BIT_DEPTH,
-                    mapper: ReinhardJodieNeon::new(luma_primaries),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::Filmic = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
-            {
-                use crate::neon::{HableNeon, HotFilmicNeon};
-                return Ok(Arc::new(HotFilmicNeon::<u16, 65536, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 65536,
-                    adaptation_matrix: conversion,
-                    bit_depth: BIT_DEPTH,
-                    mapper: HableNeon,
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
-            } else if let ToneMappingMethod::Aces = &method
-                && let MappingColorSpace::Rgb(rgb_param) = &working_color_space
-                && rgb_param.gamut_clipping == GamutClipping::NoClip
-                && _all_luts_the_same
-            {
-                use crate::neon::{AcesNeon, HotAcesNeon};
-                return Ok(Arc::new(HotAcesNeon::<u16, 65536, CN> {
-                    linear: linear_table_r,
-                    gamma: gamma_table_r,
-                    gamma_lut: 65536,
-                    adaptation_matrix: conversion,
-                    bit_depth: BIT_DEPTH,
-                    mapper: AcesNeon::default(),
-                    tone_map,
-                    exposure: rgb_param.exposure,
-                }));
+                if _all_luts_the_same
+                    && let Some(value) = get_neon_transform::<u16, 65536, CN>(
+                        input_color_space,
+                        &method,
+                        &working_color_space,
+                        &linear_table_r,
+                        &gamma_table_r,
+                        &tone_map,
+                        conversion,
+                        BIT_DEPTH,
+                        65536,
+                    )
+                {
+                    return value;
+                }
             }
 
             let im_stage: Box<dyn InPlaceStage + Send + Sync> =
@@ -883,6 +759,243 @@ fn create_tone_mapper_u16<const CN: usize, const BIT_DEPTH: usize>(
             }))
         }
     }
+}
+
+#[cfg(all(target_arch = "aarch64", feature = "neon"))]
+#[allow(clippy::borrowed_box)]
+fn get_neon_transform<
+    T: MangledCoercion + Clone + Copy + Default + Send + Sync + 'static + Debug,
+    const N: usize,
+    const CN: usize,
+>(
+    input_color_space: &ColorProfile,
+    method: &ToneMappingMethod,
+    working_color_space: &MappingColorSpace,
+    linear_table_r: &Box<[f32; N]>,
+    gamma_table_r: &Box<[T; 65536]>,
+    tone_map: &Arc<SyncToneMap>,
+    conversion: Matrix3f,
+    bit_depth: usize,
+    gamma_lut: usize,
+) -> Option<Result<ToneMapping<T>, ForgeError>>
+where
+    u32: AsPrimitive<T>,
+{
+    if !matches!(working_color_space, MappingColorSpace::Rgb(_)) {
+        return None;
+    }
+    let rgb_param = if let MappingColorSpace::Rgb(rgb_param) = &working_color_space
+        && rgb_param.gamut_clipping == GamutClipping::NoClip
+    {
+        rgb_param
+    } else {
+        return None;
+    };
+    if let ToneMappingMethod::TunedReinhard(params) = &method {
+        use crate::neon::{DisplayReinhardParamsNeon, HotTunedReinhardNeon};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotTunedReinhardNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: DisplayReinhardParamsNeon::new(
+                params.content_max_brightness,
+                params.display_max_brightness,
+                203f32,
+                luma_primaries,
+            ),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::ExtendedReinhard = &method {
+        use crate::neon::{ExtendedReinhardNeon, HotExtendedReinhardNeon};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotExtendedReinhardNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ExtendedReinhardNeon::new(luma_primaries),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::ReinhardJodie = &method {
+        use crate::neon::{HotReinhardJodieNeon, ReinhardJodieNeon};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotReinhardJodieNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ReinhardJodieNeon::new(luma_primaries),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Filmic = &method {
+        use crate::neon::{HableNeon, HotFilmicNeon};
+        return Some(Ok(Arc::new(HotFilmicNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: HableNeon,
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Aces = &method {
+        use crate::neon::{AcesNeon, HotAcesNeon};
+        return Some(Ok(Arc::new(HotAcesNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: AcesNeon::default(),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Reinhard = &method {
+        use crate::neon::{HotReinhardNeon, ReinhardNeon};
+        return Some(Ok(Arc::new(HotReinhardNeon::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ReinhardNeon::default(),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    }
+    None
+}
+
+#[cfg(all(target_arch = "x86_64", feature = "avx"))]
+#[allow(clippy::borrowed_box)]
+fn gen_avx_transform<
+    T: MangledCoercion + Clone + Copy + Default + Send + Sync + 'static + Debug,
+    const N: usize,
+    const CN: usize,
+>(
+    input_color_space: &ColorProfile,
+    method: &ToneMappingMethod,
+    working_color_space: &MappingColorSpace,
+    linear_table_r: &Box<[f32; N]>,
+    gamma_table_r: &Box<[T; 65536]>,
+    tone_map: &Arc<SyncToneMap>,
+    conversion: Matrix3f,
+    bit_depth: usize,
+    gamma_lut: usize,
+) -> Option<Result<ToneMapping<T>, ForgeError>>
+where
+    u32: AsPrimitive<T>,
+{
+    if !std::arch::is_x86_feature_detected!("avx2") || !std::arch::is_x86_feature_detected!("fma") {
+        return None;
+    }
+    if !matches!(working_color_space, MappingColorSpace::Rgb(_)) {
+        return None;
+    }
+    let rgb_param = if let MappingColorSpace::Rgb(rgb_param) = &working_color_space
+        && rgb_param.gamut_clipping == GamutClipping::NoClip
+    {
+        rgb_param
+    } else {
+        return None;
+    };
+    if let ToneMappingMethod::ReinhardJodie = &method {
+        use crate::avx::{HotReinhardJodieAvx, ReinhardJodieAvx};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotReinhardJodieAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ReinhardJodieAvx::new(luma_primaries),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Reinhard = &method {
+        use crate::avx::{HotReinhardAvx, ReinhardAvx};
+        return Some(Ok(Arc::new(HotReinhardAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ReinhardAvx::default(),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Filmic = &method {
+        use crate::avx::{HableAvx, HotHableAvx};
+        return Some(Ok(Arc::new(HotHableAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: HableAvx,
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::Aces = &method {
+        use crate::avx::{AcesAvx, HotAcesAvx};
+        return Some(Ok(Arc::new(HotAcesAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: AcesAvx::default(),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::TunedReinhard(params) = &method {
+        use crate::avx::{DisplayReinhardParamsAvx, HotTunedReinhardAvx};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotTunedReinhardAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: DisplayReinhardParamsAvx::new(
+                params.content_max_brightness,
+                params.display_max_brightness,
+                203f32,
+                luma_primaries,
+            ),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    } else if let ToneMappingMethod::ExtendedReinhard = &method {
+        use crate::avx::{ExtendedReinhardAvx, HotExtendedReinhardAvx};
+        let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
+        let luma_primaries: [f32; 3] = primaries.v[1];
+        return Some(Ok(Arc::new(HotExtendedReinhardAvx::<T, N, CN> {
+            linear: linear_table_r.clone(),
+            gamma: gamma_table_r.clone(),
+            gamma_lut,
+            adaptation_matrix: conversion,
+            bit_depth,
+            mapper: ExtendedReinhardAvx::new(luma_primaries),
+            tone_map: tone_map.clone(),
+            exposure: rgb_param.exposure,
+        })));
+    }
+    None
 }
 
 fn make_mapper<const CN: usize>(
@@ -961,7 +1074,7 @@ macro_rules! define8 {
             output_color_space: &ColorProfile,
             method: ToneMappingMethod,
             working_color_space: MappingColorSpace,
-        ) -> Result<Arc<SyncToneMapper8Bit>, ForgeError> {
+        ) -> Result<ToneMapping<u8>, ForgeError> {
             create_tone_mapper_u8::<$cn>(
                 input_color_space,
                 output_color_space,
@@ -988,7 +1101,7 @@ macro_rules! define16 {
             output_color_space: &ColorProfile,
             method: ToneMappingMethod,
             working_color_space: MappingColorSpace,
-        ) -> Result<Arc<SyncToneMapper16Bit>, ForgeError> {
+        ) -> Result<ToneMapping<u16>, ForgeError> {
             create_tone_mapper_u16::<$cn, $bp>(
                 input_color_space,
                 output_color_space,

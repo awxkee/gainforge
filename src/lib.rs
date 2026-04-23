@@ -228,9 +228,15 @@
 //! ## Features
 //! - `uhdr` -- Enable Ultra HDR/[ISO 21496-1 Gain Map](https://www.iso.org/standard/86775.html) support.
 //!   > ⚠️ This will pull in `serde` and `quick-xml` dependencies.
-#![allow(clippy::manual_clamp, clippy::excessive_precision)]
+#![allow(
+    clippy::manual_clamp,
+    clippy::excessive_precision,
+    clippy::too_many_arguments
+)]
 #[cfg(feature = "uhdr")]
 mod apply_gain_map;
+#[cfg(all(target_arch = "x86_64", feature = "avx"))]
+mod avx;
 mod err;
 mod gain_image;
 mod gamma;
@@ -243,6 +249,7 @@ mod neon;
 mod rgb_tone_mapper;
 mod spline;
 mod tonemapper;
+mod util;
 
 #[cfg(feature = "uhdr")]
 pub use apply_gain_map::{
@@ -263,11 +270,10 @@ use num_traits::{Float, Num};
 pub use spline::FilmicSplineParameters;
 pub use tonemapper::{
     CommonToneMapperParameters, GainHdrMetadata, GamutClipping, JzazbzToneMapperParameters,
-    MappingColorSpace, RgbToneMapperParameters, SyncToneMapper8Bit, SyncToneMapper16Bit,
-    ToneMapper, create_tone_mapper_rgb, create_tone_mapper_rgb10, create_tone_mapper_rgb12,
-    create_tone_mapper_rgb14, create_tone_mapper_rgb16, create_tone_mapper_rgba,
-    create_tone_mapper_rgba10, create_tone_mapper_rgba12, create_tone_mapper_rgba14,
-    create_tone_mapper_rgba16,
+    MappingColorSpace, RgbToneMapperParameters, ToneMapper, ToneMapping, create_tone_mapper_rgb,
+    create_tone_mapper_rgb10, create_tone_mapper_rgb12, create_tone_mapper_rgb14,
+    create_tone_mapper_rgb16, create_tone_mapper_rgba, create_tone_mapper_rgba10,
+    create_tone_mapper_rgba12, create_tone_mapper_rgba14, create_tone_mapper_rgba16,
 };
 
 #[inline]

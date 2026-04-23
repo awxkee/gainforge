@@ -27,9 +27,8 @@
  * // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 use crate::mappers::c_uncharted2_tonemap_partial;
-use crate::neon::MangledCoercion;
 use crate::neon::scale_rgb::{NeonAlignedU16, vzip1q_f32_f64};
-use crate::neon::util::{split_by_twos, split_by_twos_mut};
+use crate::util::{MangledCoercion, split_by_twos, split_by_twos_mut};
 use crate::{ForgeError, ToneMapper};
 use moxcms::Matrix3f;
 use num_traits::AsPrimitive;
@@ -424,6 +423,7 @@ where
                     let zx1 = vcvtq_u32_f32(vr1);
                     let zx2 = vcvtq_u32_f32(vr2);
                     let zx3 = vcvtq_u32_f32(vr3);
+
                     vst1q_u32(temporary0.0.as_mut_ptr() as *mut _, zx0);
                     vst1q_u32(temporary1.0.as_mut_ptr() as *mut _, zx1);
                     vst1q_u32(temporary2.0.as_mut_ptr() as *mut _, zx2);

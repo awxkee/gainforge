@@ -30,9 +30,9 @@ mod each_rgb;
 mod scale_rgb;
 
 pub(crate) use each_rgb::{
-    AcesNeon, HableNeon, HotAcesNeon, HotFilmicNeon, HotReinhardJodieNeon, HotReinhardNeon,
-    ReinhardJodieNeon, ReinhardNeon,
+    AcesAvx, HableAvx, HotAcesAvx, HotHableAvx, HotReinhardAvx, HotReinhardJodieAvx, ReinhardAvx,
+    ReinhardJodieAvx,
 };
 pub(crate) use scale_rgb::{
-    DisplayReinhardParamsNeon, ExtendedReinhardNeon, HotExtendedReinhardNeon, HotTunedReinhardNeon,
+    DisplayReinhardParamsAvx, ExtendedReinhardAvx, HotExtendedReinhardAvx, HotTunedReinhardAvx,
 };
