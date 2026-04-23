@@ -42,3 +42,23 @@ pub(crate) fn split_by_twos_mut<T: Copy>(data: &mut [T], channels: usize) -> (&m
     let split_point = len * 4;
     data.split_at_mut(split_point * channels)
 }
+
+#[allow(dead_code)]
+pub(crate) trait MangledCoercion {
+    fn _as_usize(self) -> usize;
+}
+
+#[allow(dead_code)]
+impl MangledCoercion for u16 {
+    #[inline(always)]
+    fn _as_usize(self) -> usize {
+        self as usize
+    }
+}
+
+impl MangledCoercion for u8 {
+    #[inline(always)]
+    fn _as_usize(self) -> usize {
+        self as usize
+    }
+}

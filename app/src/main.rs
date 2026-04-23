@@ -187,20 +187,20 @@ fn main() {
         //     saturation: Rgb::new(1.4, 1.4, 1.4),
         //     offset: Rgb::default(),
         // })),
-        ToneMappingMethod::Itu2408(GainHdrMetadata {
-            content_max_brightness: 10000.,
-            display_max_brightness: 250.,
-        }),
-        // ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
-        // ToneMappingMethod::Reinhard,
-        // MappingColorSpace::Rgb(RgbToneMapperParameters {
-        //     gamut_clipping: GamutClipping::Compress,
-        //     exposure: 1f32,
+        // ToneMappingMethod::Itu2408(GainHdrMetadata {
+        //     content_max_brightness: 10000.,
+        //     display_max_brightness: 250.,
         // }),
-        MappingColorSpace::Yrg(CommonToneMapperParameters {
-            exposure: 1f32,
+        ToneMappingMethod::TunedReinhard(GainHdrMetadata::new(2000., 250.)),
+        // ToneMappingMethod::ExtendedReinhard,
+        MappingColorSpace::Rgb(RgbToneMapperParameters {
             gamut_clipping: GamutClipping::NoClip,
+            exposure: 1.0,
         }),
+        // MappingColorSpace::Yrg(CommonToneMapperParameters {
+        //     exposure: 1f32,
+        //     gamut_clipping: GamutClipping::NoClip,
+        // }),
         // MappingColorSpace::Jzazbz(JzazbzToneMapperParameters {
         //     content_brightness: 2000.,
         //     exposure: 1f32,
