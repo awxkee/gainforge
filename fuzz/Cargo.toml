@@ -1,0 +1,30 @@
+[package]
+name = "app-fuzz"
+version = "0.0.1"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+moxcms = { version = "0.8.1", default-features = false }
+
+[features]
+default = []
+avx = ["gainforge/avx"]
+neon = ["gainforge/neon"]
+
+[dependencies.gainforge]
+path = ".."
+features = []
+default-features = false
+
+[[bin]]
+name = "default"
+path = "default/default.rs"
+test = false
+doc = false
+bench = false
