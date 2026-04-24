@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = [ "png", "jpeg"] }
-gainforge = { path = "../", features = ["uhdr"] }
+gainforge = { path = "../", features = ["uhdr", "avx", "neon"] }
 num-traits = "0.2.19"
 moxcms = "0.8.0"
 zune-jpeg = { git = "https://github.com/etemesi254/zune-image" }

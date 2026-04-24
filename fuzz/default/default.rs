@@ -66,7 +66,9 @@ impl From<ArbitraryToneMapping> for ToneMappingMethod {
             ArbitraryToneMapping::Filmic => ToneMappingMethod::Filmic,
             ArbitraryToneMapping::Aces => ToneMappingMethod::Aces,
             ArbitraryToneMapping::Reinhard => ToneMappingMethod::Reinhard,
-            ArbitraryToneMapping::ExtendedReinhard => ToneMappingMethod::ExtendedReinhard,
+            ArbitraryToneMapping::ExtendedReinhard => {
+                ToneMappingMethod::ExtendedReinhard { max_luma: 1. }
+            }
             ArbitraryToneMapping::ReinhardJodie => ToneMappingMethod::ReinhardJodie,
             ArbitraryToneMapping::Clamp => ToneMappingMethod::Clamp,
             ArbitraryToneMapping::FilmicSpline(p) => {

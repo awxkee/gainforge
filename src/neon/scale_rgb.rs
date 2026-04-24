@@ -44,12 +44,14 @@ pub(crate) struct DisplayReinhardParamsNeon {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ExtendedReinhardNeon {
     primaries: [f32; 4],
+    recip_max_l_sqr: f32,
 }
 
 impl ExtendedReinhardNeon {
-    pub(crate) fn new(primaries: [f32; 3]) -> Self {
+    pub(crate) fn new(primaries: [f32; 3], max_l: f32) -> Self {
         Self {
             primaries: [primaries[0], primaries[1], primaries[2], 0.0],
+            recip_max_l_sqr: 1. / (max_l * max_l),
         }
     }
 }
@@ -75,6 +77,13 @@ impl DisplayReinhardParamsNeon {
 #[repr(align(16), C)]
 #[allow(unused)]
 pub(crate) struct NeonAlignedU16(pub(crate) [u16; 8]);
+
+#[inline]
+#[target_feature(enable = "neon")]
+fn vrecip_f32(x: float32x4_t) -> float32x4_t {
+    let rcp = vrecpeq_f32(x);
+    vmulq_f32(vrecpsq_f32(x, rcp), rcp)
+}
 
 pub(crate) trait HotScaleMapperNeon {
     fn map(&self, color: [float32x4_t; 3]) -> float32x4_t;
@@ -102,7 +111,20 @@ impl HotScaleMapperNeon for ExtendedReinhardNeon {
             let mut luma = vmulq_n_f32(color[0], self.primaries[0]);
             luma = vfmaq_n_f32(luma, color[1], self.primaries[1]);
             luma = vfmaq_n_f32(luma, color[2], self.primaries[2]);
-            vdivq_f32(luma, vaddq_f32(vdupq_n_f32(1.), luma))
+            let mut rcp_luma = vrecip_f32(luma);
+            let mask = vceqzq_f32(luma);
+            rcp_luma = vbslq_f32(mask, vdupq_n_f32(0.0), rcp_luma);
+            let numerator = vmulq_f32(
+                luma,
+                vaddq_f32(
+                    vdupq_n_f32(1.0),
+                    vmulq_f32(luma, vdupq_n_f32(self.recip_max_l_sqr)),
+                ),
+            );
+            vmulq_f32(
+                vdivq_f32(numerator, vaddq_f32(vdupq_n_f32(1.0), luma)),
+                rcp_luma,
+            )
         }
     }
 }
