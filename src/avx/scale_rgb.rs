@@ -99,23 +99,34 @@ impl HotScaleMapperAvx for DisplayReinhardParamsAvx {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ExtendedReinhardAvx {
     primaries: [__m128; 3],
+    recip_max_l_sqr: __m128,
 }
 
 impl ExtendedReinhardAvx {
-    pub(crate) fn new(primaries: [f32; 3]) -> Self {
-        unsafe { Self::new_impl(primaries) }
+    pub(crate) fn new(primaries: [f32; 3], max_l: f32) -> Self {
+        unsafe { Self::new_impl(primaries, max_l) }
     }
 
     #[target_feature(enable = "avx2")]
-    fn new_impl(primaries: [f32; 3]) -> Self {
+    fn new_impl(primaries: [f32; 3], max_l: f32) -> Self {
         Self {
             primaries: [
                 _mm_set1_ps(primaries[0]),
                 _mm_set1_ps(primaries[1]),
                 _mm_set1_ps(primaries[2]),
             ],
+            recip_max_l_sqr: _mm_set1_ps(1. / (max_l * max_l)),
         }
     }
+}
+
+#[inline]
+#[target_feature(enable = "avx2", enable = "fma")]
+fn _m128_rcp_refined(x: __m128) -> __m128 {
+    let r = _mm_rcp_ps(x);
+    // NR step: r = r * (2 - x*r)
+    let two = _mm_set1_ps(2.0);
+    _mm_mul_ps(r, _mm_fnmadd_ps(x, r, two))
 }
 
 impl HotScaleMapperAvx for ExtendedReinhardAvx {
@@ -125,7 +136,19 @@ impl HotScaleMapperAvx for ExtendedReinhardAvx {
         let mut luma = _mm_mul_ps(color[0], self.primaries[0]);
         luma = _mm_fmadd_ps(color[1], self.primaries[1], luma);
         luma = _mm_fmadd_ps(color[2], self.primaries[2], luma);
-        _mm_div_ps(luma, _mm_add_ps(_mm_set1_ps(1.), luma))
+
+        let mut recip_luma = _m128_rcp_refined(luma);
+        let mask = _mm_cmpeq_ps(luma, _mm_setzero_ps());
+        recip_luma = _mm_andnot_ps(mask, recip_luma);
+
+        let numerator = _mm_mul_ps(
+            luma,
+            _mm_add_ps(_mm_set1_ps(1.0), _mm_mul_ps(luma, self.recip_max_l_sqr)),
+        );
+        _mm_mul_ps(
+            _mm_div_ps(numerator, _mm_add_ps(_mm_set1_ps(1.0), luma)),
+            recip_luma,
+        )
     }
 }
 

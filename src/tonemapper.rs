@@ -810,7 +810,7 @@ where
             tone_map: tone_map.clone(),
             exposure: rgb_param.exposure,
         })));
-    } else if let ToneMappingMethod::ExtendedReinhard = &method {
+    } else if let ToneMappingMethod::ExtendedReinhard { max_luma } = &method {
         use crate::neon::{ExtendedReinhardNeon, HotExtendedReinhardNeon};
         let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
         let luma_primaries: [f32; 3] = primaries.v[1];
@@ -820,7 +820,7 @@ where
             gamma_lut,
             adaptation_matrix: conversion,
             bit_depth,
-            mapper: ExtendedReinhardNeon::new(luma_primaries),
+            mapper: ExtendedReinhardNeon::new(luma_primaries, *max_luma),
             tone_map: tone_map.clone(),
             exposure: rgb_param.exposure,
         })));
@@ -980,7 +980,7 @@ where
             tone_map: tone_map.clone(),
             exposure: rgb_param.exposure,
         })));
-    } else if let ToneMappingMethod::ExtendedReinhard = &method {
+    } else if let ToneMappingMethod::ExtendedReinhard { max_luma } = &method {
         use crate::avx::{ExtendedReinhardAvx, HotExtendedReinhardAvx};
         let primaries = input_color_space.rgb_to_xyz_matrix().to_f32();
         let luma_primaries: [f32; 3] = primaries.v[1];
@@ -990,7 +990,7 @@ where
             gamma_lut,
             adaptation_matrix: conversion,
             bit_depth,
-            mapper: ExtendedReinhardAvx::new(luma_primaries),
+            mapper: ExtendedReinhardAvx::new(luma_primaries, *max_luma),
             tone_map: tone_map.clone(),
             exposure: rgb_param.exposure,
         })));
@@ -1021,10 +1021,11 @@ fn make_mapper<const CN: usize>(
         }
         ToneMappingMethod::Filmic => Arc::new(FilmicToneMapper::<CN>::default()),
         ToneMappingMethod::Aces => Arc::new(AcesToneMapper::<CN>::default()),
-        ToneMappingMethod::ExtendedReinhard => {
+        ToneMappingMethod::ExtendedReinhard { max_luma } => {
             use crate::mappers::ExtendedReinhardToneMapper;
             Arc::new(ExtendedReinhardToneMapper::<CN> {
                 primaries: luma_primaries,
+                recip_max_l_sqr: 1. / (max_luma * max_luma),
             })
         }
         ToneMappingMethod::ReinhardJodie => Arc::new(ReinhardJodieToneMapper::<CN> {

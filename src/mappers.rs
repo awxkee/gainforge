@@ -65,7 +65,7 @@ pub enum ToneMappingMethod {
     Reinhard,
     /// Same as `Reinhard` but scales the output to the full dynamic
     /// range of the image.
-    ExtendedReinhard,
+    ExtendedReinhard { max_luma: f32 },
     /// A variation of `Reinhard` that uses mixes color-based- with
     /// luminance-based tone mapping.
     ReinhardJodie,
@@ -428,6 +428,7 @@ impl<const CN: usize> ToneMap for ReinhardToneMapper<CN> {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ExtendedReinhardToneMapper<const CN: usize> {
     pub(crate) primaries: [f32; 3],
+    pub(crate) recip_max_l_sqr: f32,
 }
 
 impl<const CN: usize> ToneMap for ExtendedReinhardToneMapper<CN> {
@@ -438,18 +439,28 @@ impl<const CN: usize> ToneMap for ExtendedReinhardToneMapper<CN> {
                 self.primaries[0],
                 fmla(chunk[1], self.primaries[1], chunk[2] * self.primaries[2]),
             );
-            let new_luma = luma / (1f32 + luma);
-            chunk[0] = (chunk[0] * new_luma).min(1.);
-            chunk[1] = (chunk[1] * new_luma).min(1.);
-            chunk[2] = (chunk[2] * new_luma).min(1.);
+            if luma == 0. {
+                continue;
+            }
+            let numerator = luma * (1.0 + (luma * self.recip_max_l_sqr));
+            let l_new = numerator / (1.0 + luma);
+            let scale = l_new / luma;
+            chunk[0] = (chunk[0] * scale).min(1.);
+            chunk[1] = (chunk[1] * scale).min(1.);
+            chunk[2] = (chunk[2] * scale).min(1.);
         }
     }
 
     fn process_luma_lane(&self, in_place: &mut [f32]) {
         for chunk in in_place.as_chunks_mut::<CN>().0.iter_mut() {
             let luma = chunk[0];
-            let new_luma = luma / (1f32 + luma);
-            chunk[0] = (chunk[0] * new_luma).min(1f32);
+            if luma == 0. {
+                continue;
+            }
+            let numerator = luma * (1.0 + (luma * self.recip_max_l_sqr));
+            let l_new = numerator / (1.0 + luma);
+            let scale = l_new / luma;
+            chunk[0] = (chunk[0] * scale).min(1f32);
         }
     }
 }
