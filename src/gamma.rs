@@ -366,7 +366,7 @@ impl TransferFunction {
         let mut table = Box::new([0.; 65536]);
         let max_bp = (1 << bit_depth as u32) - 1;
         let max_scale = 1f32 / max_bp as f32;
-        for (i, value) in table.iter_mut().take(max_bp).enumerate() {
+        for (i, value) in table[..max_bp + 1].iter_mut().enumerate() {
             *value = self.linearize(i as f32 * max_scale, reference_display);
         }
         table
@@ -401,5 +401,63 @@ pub(crate) fn trc_from_cicp(trc: TransferCharacteristics) -> Option<TransferFunc
         TransferCharacteristics::Smpte2084 => Some(TransferFunction::PerceptualQuantizer),
         TransferCharacteristics::Smpte428 => Some(TransferFunction::Smpte428),
         TransferCharacteristics::Hlg => Some(TransferFunction::HybridLogGamma),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        create_tone_mapper_rgb, create_tone_mapper_rgb16, CommonToneMapperParameters,
+        GainHdrMetadata, GamutClipping, MappingColorSpace, ToneMappingMethod,
+    };
+    use moxcms::ColorProfile;
+
+    #[test]
+    fn test_rgb16_highlight_not_clipped_to_black() {
+        let (src, dst) = (ColorProfile::new_bt2020_pq(), ColorProfile::new_srgb());
+        let method = ToneMappingMethod::Itu2408(GainHdrMetadata {
+            content_max_brightness: 10000.0,
+            display_max_brightness: 100.0,
+        });
+        let map = || {
+            MappingColorSpace::Yrg(CommonToneMapperParameters {
+                exposure: 1.0,
+                gamut_clipping: GamutClipping::NoClip,
+            })
+        };
+
+        // 16-bit tone mapper
+        let m16 = create_tone_mapper_rgb16(&src, &dst, method, map()).unwrap();
+        let mut o16 = [0u16; 3];
+        m16.tonemap_lane(&[65535u16, 65535, 65535], &mut o16)
+            .unwrap();
+
+        // If the bug is present, o16 will be approximately [0, 0, 0].
+        // Strong highlights should not map to black, so we assert they are reasonably bright.
+        assert!(
+            o16[0] > 1000,
+            "R16 channel was clipped to black: {}",
+            o16[0]
+        );
+        assert!(
+            o16[1] > 1000,
+            "G16 channel was clipped to black: {}",
+            o16[1]
+        );
+        assert!(
+            o16[2] > 1000,
+            "B16 channel was clipped to black: {}",
+            o16[2]
+        );
+
+        // 8-bit tone mapper (which never had the off-by-one bug)
+        let m8 = create_tone_mapper_rgb(&src, &dst, method, map()).unwrap();
+        let mut o8 = [0u8; 3];
+        m8.tonemap_lane(&[255u8, 255, 255], &mut o8).unwrap();
+
+        // Sanity check that 8-bit maps white to a bright value
+        assert!(o8[0] > 50, "R8 channel was clipped to black: {}", o8[0]);
+        assert!(o8[1] > 50, "G8 channel was clipped to black: {}", o8[1]);
+        assert!(o8[2] > 50, "B8 channel was clipped to black: {}", o8[2]);
     }
 }
