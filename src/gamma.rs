@@ -366,7 +366,7 @@ impl TransferFunction {
         let mut table = Box::new([0.; 65536]);
         let max_bp = (1 << bit_depth as u32) - 1;
         let max_scale = 1f32 / max_bp as f32;
-        for (i, value) in table.iter_mut().enumerate() {
+        for (i, value) in table[..max_bp + 1].iter_mut().enumerate() {
             *value = self.linearize(i as f32 * max_scale, reference_display);
         }
         table
