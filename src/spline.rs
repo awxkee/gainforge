@@ -127,7 +127,7 @@ impl<const CN: usize> SplineToneMapper<CN> {
 
 impl<const CN: usize> ToneMap for SplineToneMapper<CN> {
     fn process_lane(&self, in_place: &mut [f32]) {
-        for chunk in in_place.chunks_exact_mut(CN) {
+        for chunk in in_place.as_chunks_mut::<CN>().0.iter_mut() {
             let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
             let mut norm =
                 (rgb.r * self.primaries[0] + rgb.g * self.primaries[1] + rgb.b * self.primaries[2])
@@ -162,7 +162,7 @@ impl<const CN: usize> ToneMap for SplineToneMapper<CN> {
     }
 
     fn process_luma_lane(&self, in_place: &mut [f32]) {
-        for chunk in in_place.chunks_exact_mut(CN) {
+        for chunk in in_place.as_chunks_mut::<CN>().0.iter_mut() {
             let rgb = Rgb::new(chunk[0], chunk[1], chunk[2]);
             let mut norm = rgb.r.max(1.52587890625e-05f32);
             let mut ratios = rgb / norm;

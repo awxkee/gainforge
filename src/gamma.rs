@@ -407,8 +407,8 @@ pub(crate) fn trc_from_cicp(trc: TransferCharacteristics) -> Option<TransferFunc
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_tone_mapper_rgb, create_tone_mapper_rgb16, CommonToneMapperParameters,
-        GainHdrMetadata, GamutClipping, MappingColorSpace, ToneMappingMethod,
+        CommonToneMapperParameters, GainHdrMetadata, GamutClipping, MappingColorSpace,
+        ToneMappingMethod, create_tone_mapper_rgb, create_tone_mapper_rgb16,
     };
     use moxcms::ColorProfile;
 
