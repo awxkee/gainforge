@@ -29,7 +29,9 @@
 use crate::mlaf::mlaf;
 use moxcms::Rgb;
 use pxfm::{f_exp2, f_exp2f, f_log2f, f_powf};
-use quick_xml::Reader;
+use quick_xml::events::Event;
+use quick_xml::name::{Namespace, ResolveResult};
+use quick_xml::reader::NsReader;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -423,45 +425,6 @@ const USE_BASE_COLORSPACE_MASK: u8 = 1 << 6;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename = "x:xmpmeta", rename_all = "camelCase")]
-struct XmlGainMapData {
-    #[serde(rename = "RDF")]
-    rdf: Rdf,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Rdf {
-    #[serde(rename = "Description")]
-    description: GainMapDescription,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GainMapDescription {
-    #[serde(rename = "@Version")]
-    version: String,
-    #[serde(rename = "@GainMapMin")]
-    gain_map_min: Option<f32>,
-
-    #[serde(rename = "@GainMapMax")]
-    gain_map_max: f32,
-
-    #[serde(rename = "@HDRCapacityMin")]
-    hdr_capacity_min: Option<f32>,
-
-    #[serde(rename = "@HDRCapacityMax")]
-    hdr_capacity_max: Option<f32>,
-
-    #[serde(rename = "@OffsetHDR")]
-    offset_hdr: Option<f32>,
-
-    #[serde(rename = "@OffsetSDR")]
-    offset_sdr: Option<f32>,
-
-    #[serde(rename = "@Gamma")]
-    gamma: Option<f32>,
-}
-
 fn float_to_unsigned_fraction_impl(v: f32, max_numerator: u32) -> Option<(u32, u32)> {
     if v.is_nan() || v < 0.0 || v > max_numerator as f32 {
         return None;
@@ -509,7 +472,7 @@ fn float_to_unsigned_fraction_impl(v: f32, max_numerator: u32) -> Option<(u32, u
 }
 
 fn float_to_signed_fraction(v: f32) -> Option<(i32, u32)> {
-    let (numerator, denominator) = float_to_unsigned_fraction_impl(v, i32::MAX as u32)?;
+    let (numerator, denominator) = float_to_unsigned_fraction_impl(v.abs(), i32::MAX as u32)?;
     let mut pos = numerator as i32;
     if v < 0f32 {
         pos *= -1;
@@ -610,84 +573,204 @@ pub struct UhdrItem {
     pub length: Option<u32>,
 }
 
+const HDRGM_NS: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
+
+fn xmp_error(detail: &str) -> UhdrErrorInfo {
+    UhdrErrorInfo {
+        error_code: UhdrErrorCode::InvalidParam,
+        detail: Some(format!("Invalid gain map XMP: {detail}")),
+    }
+}
+
+#[derive(Default)]
+struct HdrgmProperties {
+    has_version: bool,
+    gain_map_min: Option<[f32; 3]>,
+    gain_map_max: Option<[f32; 3]>,
+    gamma: Option<[f32; 3]>,
+    offset_sdr: Option<[f32; 3]>,
+    offset_hdr: Option<[f32; 3]>,
+    hdr_capacity_min: Option<[f32; 3]>,
+    hdr_capacity_max: Option<[f32; 3]>,
+    base_rendition_is_hdr: bool,
+}
+
+/// Text of an element's inner XML without markup, so the `rdf:li` values of
+/// an `rdf:Seq` come out separated by whitespace.
+fn strip_xml_tags(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut in_tag = false;
+    for ch in xml.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                out.push(' ');
+            }
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+impl HdrgmProperties {
+    fn set(&mut self, name: &str, value: &str) -> Result<(), UhdrErrorInfo> {
+        let slot = match name {
+            "Version" => {
+                self.has_version = true;
+                return Ok(());
+            }
+            "BaseRenditionIsHDR" => {
+                self.base_rendition_is_hdr = match value.trim() {
+                    "True" | "true" => true,
+                    "False" | "false" => false,
+                    _ => return Err(xmp_error("invalid hdrgm:BaseRenditionIsHDR")),
+                };
+                return Ok(());
+            }
+            "GainMapMin" => &mut self.gain_map_min,
+            "GainMapMax" => &mut self.gain_map_max,
+            "Gamma" => &mut self.gamma,
+            "OffsetSDR" => &mut self.offset_sdr,
+            "OffsetHDR" => &mut self.offset_hdr,
+            "HDRCapacityMin" => &mut self.hdr_capacity_min,
+            "HDRCapacityMax" => &mut self.hdr_capacity_max,
+            _ => return Ok(()),
+        };
+        let values = value
+            .split_whitespace()
+            .map(|v| v.parse::<f32>().ok().filter(|v| v.is_finite()))
+            .collect::<Option<Vec<f32>>>()
+            .ok_or_else(|| xmp_error(&format!("invalid hdrgm:{name}")))?;
+        *slot = Some(match values.as_slice() {
+            [v] => [*v; 3],
+            [r, g, b] => [*r, *g, *b],
+            _ => return Err(xmp_error(&format!("hdrgm:{name} needs 1 or 3 values"))),
+        });
+        Ok(())
+    }
+
+    fn parse(xml: &[u8]) -> Result<Self, UhdrErrorInfo> {
+        let mut reader = NsReader::from_reader(xml);
+        let mut props = HdrgmProperties::default();
+        let malformed = |_| xmp_error("malformed XML");
+        loop {
+            let event = reader.read_event().map_err(malformed)?;
+            match event {
+                Event::Start(ref element) | Event::Empty(ref element) => {
+                    for attr in element.attributes() {
+                        let attr = attr.map_err(|_| xmp_error("malformed attribute"))?;
+                        let (ns, name) = reader.resolver().resolve_attribute(attr.key);
+                        if ns == ResolveResult::Bound(Namespace(HDRGM_NS)) {
+                            let value = attr
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .map_err(|_| xmp_error("malformed attribute"))?;
+                            props.set(name.as_ref(), &value)?;
+                        }
+                    }
+                    let (ns, name) = reader.resolver().resolve_element(element.name());
+                    if matches!(event, Event::Start(_))
+                        && ns == ResolveResult::Bound(Namespace(HDRGM_NS))
+                    {
+                        let name = name.as_ref().to_owned();
+                        let text = reader.read_text(element.name()).map_err(malformed)?;
+                        let text = text.into_inner();
+                        let text = quick_xml::escape::unescape(&strip_xml_tags(&text))
+                            .map_err(|_| xmp_error("invalid escape"))?
+                            .into_owned();
+                        props.set(&name, &text)?;
+                    }
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+        }
+        if !props.has_version && props.gain_map_max.is_none() {
+            return Err(xmp_error("no hdrgm gain map properties"));
+        }
+        Ok(props)
+    }
+}
+
 impl IsoGainMap {
-    #[allow(clippy::field_reassign_with_default)]
+    /// Parses Adobe gain map (`hdrgm`) XMP, as written by Ultra HDR v1,
+    /// Lightroom and libultrahdr, into ISO 21496-1 metadata.
+    ///
+    /// Namespace URIs are resolved, so any prefix works. Properties may be
+    /// attributes or elements, and per-channel values may be `rdf:Seq` lists.
+    /// Defaults follow the Adobe specification: `GainMapMin` 0, `Gamma` 1,
+    /// `OffsetSDR`/`OffsetHDR` 1/64, `HDRCapacityMin` 0. `GainMapMax` and
+    /// `HDRCapacityMax` are required. An HDR base rendition
+    /// (`BaseRenditionIsHDR="True"`) is rejected, as in libultrahdr.
     pub fn from_xml_data(in_data: &[u8]) -> Result<Self, UhdrErrorInfo> {
-        let xml_string = String::from_utf8(in_data.to_vec()).map_err(|_| UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Invalid ISO gain map XML".to_string()),
-        })?;
-        let mut reader = Reader::from_str(xml_string.as_ref());
-        reader.config_mut().trim_text(true);
-        let gain_map: XmlGainMapData =
-            from_str(xml_string.as_ref()).map_err(|_| UhdrErrorInfo {
-                error_code: UhdrErrorCode::InvalidParam,
-                detail: Some("Invalid ISO gain map XML".to_string()),
-            })?;
-        let (gain_map_max_n, gain_map_max_d) = float_to_signed_fraction(
-            gain_map.rdf.description.gain_map_max,
-        )
-        .ok_or(UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Invalid ISO gain map XML".to_string()),
-        })?;
-        let (gain_map_min_n, gain_map_min_d) =
-            float_to_signed_fraction(gain_map.rdf.description.gain_map_min.unwrap_or(1.0f32))
-                .ok_or(UhdrErrorInfo {
-                    error_code: UhdrErrorCode::InvalidParam,
-                    detail: Some("Invalid ISO gain map XML".to_string()),
-                })?;
-        let (hdr_capacity_min_n, hdr_capacity_min_d) =
-            float_to_unsigned_fraction(gain_map.rdf.description.hdr_capacity_min.unwrap_or(1.0f32))
-                .ok_or(UhdrErrorInfo {
-                    error_code: UhdrErrorCode::InvalidParam,
-                    detail: Some("Invalid ISO gain map XML".to_string()),
-                })?;
-        let (hdr_capacity_max_n, hdr_capacity_max_d) =
-            float_to_unsigned_fraction(gain_map.rdf.description.hdr_capacity_max.unwrap_or(1.0f32))
-                .ok_or(UhdrErrorInfo {
-                    error_code: UhdrErrorCode::InvalidParam,
-                    detail: Some("Invalid ISO gain map XML".to_string()),
-                })?;
-        let (offset_hdr_n, offset_hdr_d) =
-            float_to_signed_fraction(gain_map.rdf.description.offset_hdr.unwrap_or(1f32 / 64f32))
-                .ok_or(UhdrErrorInfo {
-                error_code: UhdrErrorCode::InvalidParam,
-                detail: Some("Invalid ISO gain map XML".to_string()),
-            })?;
-        let (offset_sdr_n, offset_sdr_d) = float_to_signed_fraction(
-            gain_map
-                .rdf
-                .description
-                .offset_sdr
-                .unwrap_or(1.0f32 / 64f32),
-        )
-        .ok_or(UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Invalid ISO gain map XML".to_string()),
-        })?;
-        let (gamma_n, gamma_d) = float_to_unsigned_fraction(
-            gain_map.rdf.description.gamma.unwrap_or(1.0f32),
-        )
-        .ok_or(UhdrErrorInfo {
-            error_code: UhdrErrorCode::InvalidParam,
-            detail: Some("Invalid ISO gain map XML".to_string()),
-        })?;
+        let props = HdrgmProperties::parse(in_data)?;
+        if props.base_rendition_is_hdr {
+            return Err(xmp_error("HDR base rendition is not supported"));
+        }
+        let max = props
+            .gain_map_max
+            .ok_or_else(|| xmp_error("hdrgm:GainMapMax is missing"))?;
+        let capacity_max = props
+            .hdr_capacity_max
+            .ok_or_else(|| xmp_error("hdrgm:HDRCapacityMax is missing"))?;
+        let min = props.gain_map_min.unwrap_or([0.0; 3]);
+        let gamma = props.gamma.unwrap_or([1.0; 3]);
+        let offset_sdr = props.offset_sdr.unwrap_or([1.0 / 64.0; 3]);
+        let offset_hdr = props.offset_hdr.unwrap_or([1.0 / 64.0; 3]);
+        let capacity_min = props.hdr_capacity_min.map_or(0.0, |v| v[0]);
+        if gamma.iter().any(|&g| g <= 0.0) {
+            return Err(xmp_error("hdrgm:Gamma must be positive"));
+        }
+        if min.iter().zip(max.iter()).any(|(lo, hi)| lo > hi) {
+            return Err(xmp_error("hdrgm:GainMapMin exceeds hdrgm:GainMapMax"));
+        }
+        if capacity_max[0] <= capacity_min.max(0.0) {
+            return Err(xmp_error("hdrgm:HDRCapacityMax must exceed HDRCapacityMin"));
+        }
+
+        let signed = |v: [f32; 3], name: &str| -> Result<([i32; 3], [u32; 3]), UhdrErrorInfo> {
+            let mut n = [0i32; 3];
+            let mut d = [1u32; 3];
+            for c in 0..3 {
+                (n[c], d[c]) = float_to_signed_fraction(v[c])
+                    .ok_or_else(|| xmp_error(&format!("hdrgm:{name} is out of range")))?;
+            }
+            Ok((n, d))
+        };
+        let unsigned = |v: f32, name: &str| -> Result<(u32, u32), UhdrErrorInfo> {
+            float_to_unsigned_fraction(v)
+                .ok_or_else(|| xmp_error(&format!("hdrgm:{name} is out of range")))
+        };
+        let (gain_map_min_n, gain_map_min_d) = signed(min, "GainMapMin")?;
+        let (gain_map_max_n, gain_map_max_d) = signed(max, "GainMapMax")?;
+        let (base_offset_n, base_offset_d) = signed(offset_sdr, "OffsetSDR")?;
+        let (alternate_offset_n, alternate_offset_d) = signed(offset_hdr, "OffsetHDR")?;
+        let mut gain_map_gamma_n = [1u32; 3];
+        let mut gain_map_gamma_d = [1u32; 3];
+        for c in 0..3 {
+            (gain_map_gamma_n[c], gain_map_gamma_d[c]) = unsigned(gamma[c], "Gamma")?;
+        }
+        let (base_hdr_headroom_n, base_hdr_headroom_d) =
+            unsigned(capacity_min.max(0.0), "HDRCapacityMin")?;
+        let (alternate_hdr_headroom_n, alternate_hdr_headroom_d) =
+            unsigned(capacity_max[0], "HDRCapacityMax")?;
+
         Ok(IsoGainMap {
-            gain_map_min_n: [gain_map_min_n, gain_map_min_n, gain_map_min_n],
-            gain_map_min_d: [gain_map_min_d, gain_map_min_d, gain_map_min_d],
-            gain_map_max_n: [gain_map_max_n, gain_map_max_n, gain_map_max_n],
-            gain_map_max_d: [gain_map_max_d, gain_map_max_d, gain_map_max_d],
-            gain_map_gamma_d: [gamma_d, gamma_d, gamma_d],
-            gain_map_gamma_n: [gamma_n, gamma_n, gamma_n],
-            base_offset_d: [offset_sdr_d, offset_sdr_d, offset_sdr_d],
-            base_offset_n: [offset_sdr_n, offset_sdr_n, offset_sdr_n],
-            alternate_offset_d: [offset_hdr_d, offset_hdr_d, offset_hdr_d],
-            alternate_offset_n: [offset_hdr_n, offset_hdr_n, offset_hdr_n],
-            alternate_hdr_headroom_d: hdr_capacity_max_n,
-            alternate_hdr_headroom_n: hdr_capacity_max_d,
-            base_hdr_headroom_n: hdr_capacity_min_n,
-            base_hdr_headroom_d: hdr_capacity_min_d,
+            gain_map_min_n,
+            gain_map_min_d,
+            gain_map_max_n,
+            gain_map_max_d,
+            gain_map_gamma_n,
+            gain_map_gamma_d,
+            base_offset_n,
+            base_offset_d,
+            alternate_offset_n,
+            alternate_offset_d,
+            base_hdr_headroom_n,
+            base_hdr_headroom_d,
+            alternate_hdr_headroom_n,
+            alternate_hdr_headroom_d,
             use_base_color_space: true,
             backward_direction: false,
         })
@@ -995,4 +1078,54 @@ pub fn make_gainmap_weight(gain_map: GainMap, display_boost: f32) -> f32 {
     let gainmap_weight = (f_log2f(input_boost) - f_log2f(gain_map.hdr_capacity_min))
         / (f_log2f(gain_map.hdr_capacity_max) - f_log2f(gain_map.hdr_capacity_min));
     gainmap_weight.max(0.0f32).min(1.0f32)
+}
+
+#[cfg(test)]
+mod xmp_tests {
+    use super::*;
+
+    const NS: &str =
+        r#"xmlns:x="adobe:ns:meta/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#""#;
+
+    #[test]
+    fn hdrgm_attributes_with_spec_defaults() {
+        let xmp = format!(
+            r#"<x:xmpmeta {NS}><rdf:RDF><rdf:Description xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" hdrgm:Version="1.0" hdrgm:GainMapMax="2.5" hdrgm:HDRCapacityMax="3.0"/></rdf:RDF></x:xmpmeta>"#
+        );
+        let m = IsoGainMap::from_xml_data(xmp.as_bytes()).unwrap();
+        assert_eq!(m.map_min(), [0.0; 3]);
+        assert_eq!(m.map_max(), [2.5; 3]);
+        assert_eq!(m.gain_map_gamma(), [1.0; 3]);
+        assert_eq!(m.map_base_offset(), [1.0 / 64.0; 3]);
+        assert_eq!(m.map_alternate_offset(), [1.0 / 64.0; 3]);
+        assert_eq!(m.base_hdr_headroom(), 0.0);
+        // Was inverted (n and d swapped) before.
+        assert_eq!(m.alternate_hdr_headroom(), 3.0);
+    }
+
+    #[test]
+    fn hdrgm_any_prefix_elements_sequences_and_negative_min() {
+        let xmp = format!(
+            r#"<x:xmpmeta {NS}><rdf:RDF><rdf:Description xmlns:g="http://ns.adobe.com/hdr-gain-map/1.0/" g:Version="1.0" g:GainMapMin="-0.25" g:OffsetSDR="0" g:OffsetHDR="0">
+<g:GainMapMax><rdf:Seq><rdf:li>2.0</rdf:li><rdf:li>1.5</rdf:li><rdf:li>1.0</rdf:li></rdf:Seq></g:GainMapMax>
+<g:HDRCapacityMax>2</g:HDRCapacityMax><g:Gamma>0.5</g:Gamma>
+</rdf:Description></rdf:RDF></x:xmpmeta>"#
+        );
+        let m = IsoGainMap::from_xml_data(xmp.as_bytes()).unwrap();
+        assert_eq!(m.map_min(), [-0.25; 3]);
+        assert_eq!(m.map_max(), [2.0, 1.5, 1.0]);
+        assert_eq!(m.gain_map_gamma(), [0.5; 3]);
+        assert_eq!(m.map_base_offset(), [0.0; 3]);
+        assert_eq!(m.alternate_hdr_headroom(), 2.0);
+    }
+
+    #[test]
+    fn hdrgm_rejects_missing_or_unsupported() {
+        let no_gm = format!(r#"<x:xmpmeta {NS}><rdf:RDF><rdf:Description/></rdf:RDF></x:xmpmeta>"#);
+        assert!(IsoGainMap::from_xml_data(no_gm.as_bytes()).is_err());
+        let hdr_base = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" hdrgm:Version="1.0" hdrgm:GainMapMax="2" hdrgm:HDRCapacityMax="2" hdrgm:BaseRenditionIsHDR="True"/>"#;
+        assert!(IsoGainMap::from_xml_data(hdr_base.as_bytes()).is_err());
+        let no_capacity = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" hdrgm:Version="1.0" hdrgm:GainMapMax="2"/>"#;
+        assert!(IsoGainMap::from_xml_data(no_capacity.as_bytes()).is_err());
+    }
 }
